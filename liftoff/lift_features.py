@@ -1,10 +1,11 @@
 from liftoff import find_best_mapping, liftoff_utils, merge_lifted_features
 
 
-def lift_all_features(alns, threshold, feature_db,  feature_hierarchy,
-                      unmapped_features, lifted_feature_list, seq_id_threshold, feature_locations, args,
-                      ref_parent_order):
-    features_to_lift = feature_hierarchy.parents
+def lift_all_features(alns, threshold, feature_db,  feature_hierarchy, unmapped_features, lifted_feature_list, seq_id_threshold, feature_locations, args, ref_parent_order, feature_type):
+    if feature_type in [['gene_pc'], ['gene_pseudo']]:
+        features_to_lift = {_id: feature for _id, feature in feature_hierarchy.parents.items() if feature.featuretype == feature_type[0]}
+    else:
+        features_to_lift = {_id: feature for _id, feature in feature_hierarchy.parents.items() if feature.featuretype in feature_type}
     feature_order = get_feature_order(feature_db)
     alignments = sort_alignments(features_to_lift, alns)
     num_features = 0
@@ -19,10 +20,8 @@ def lift_all_features(alns, threshold, feature_db,  feature_hierarchy,
                                                            previous_feature_seq, unmapped_features,
                                                            alignment, seq_id_threshold, feature_locations,
                                                            lifted_feature_list, args)
-
         if lifted_features != []:
             lifted_feature_list[parent_name] = lifted_features
-
 
 
 def get_feature_order(gene_db):
@@ -79,28 +78,13 @@ def lift_single_feature(threshold, feature_order, features_to_lift, feature_hier
     original_parent_name = liftoff_utils.convert_id_to_original(new_parent_name)
     parent = features_to_lift[original_parent_name]
     if len(aligned_feature) > 0:
-        lifted_children, alignment_coverage, seq_id = find_best_mapping.find_best_mapping(aligned_feature,
-                                                                                          parent.end - parent.start + 1,
-                                                                                          parent,
-                                                                                          feature_hierarchy,
-                                                                                          previous_feature_start,
-                                                                                          previous_feature_ref_start,
-                                                                                          previous_gene_seq,
-                                                                                          feature_locations,
-                                                                                          lifted_features_list,
-                                                                                          args)
-
-
-        lifted_features = merge_lifted_features.merge_lifted_features(lifted_children,
-                                                                      parent,
-                                                                      unmapped_features, threshold,
-                                                                      new_parent_name, feature_order,
-                                                                      feature_hierarchy,
-                                                                      alignment_coverage, seq_id,
-                                                                      seq_id_threshold)
-
-
-
+        lifted_children, alignment_coverage, seq_id = find_best_mapping.find_best_mapping(
+                         aligned_feature, parent.end - parent.start + 1, parent, feature_hierarchy, 
+                         previous_feature_start, previous_feature_ref_start, previous_gene_seq, 
+                         feature_locations, lifted_features_list, args)
+        lifted_features = merge_lifted_features.merge_lifted_features(lifted_children, parent, unmapped_features, 
+                          threshold, new_parent_name, feature_order, feature_hierarchy, alignment_coverage, seq_id,
+                          seq_id_threshold)
     else:
         unmapped_features.append(parent)
     return lifted_features, aligned_feature[0].query_name
