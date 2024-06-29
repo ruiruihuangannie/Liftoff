@@ -4,9 +4,12 @@ This is Annie's private fork. It's still in the development stage and some optio
 
 Liftoff is the SoTA tool for intra-species lift-over of genome assembly annotations. Still, it's default parameters perform poorly on high-copy-number genes in large gene families, repetitive rDNA arrays, and highly variable VDJ regions, which necessitates an extension of Liftoff's existing capabilities for more control over the lift-over process.
 
+### Testing
+One existing testing script is on salz under `/ccb/salz4-3/rhuang38/tests/pipeline.ipynb`. All necessary inputs are under the same folder. Please let me know if you catch any bugs :)
+
 ### Enhanced Features
 
-```shell
+```
 Protein-Coding Genes:
 --prot_prioritize   heuristics that prioritizes protein-coding genes during lift-over. 
                     [default=True]
@@ -21,10 +24,10 @@ Protein-Coding Genes:
 
 
 Special genomic regions:
---chrY_separate     separate annotation for chromosome Y. Requires --secondary-annot. 
-                    Applies protein prioritization heuristics separately to chrY when 
-                    --prot-prioritize is enabled. [default=False]
---rDNA_separate     separate annotation for rDNA arrays. Requires --secondary-annot. 
+--chrY_separate     separate annotation for chromosome Y. Requires --annot_2. Applies 
+                    protein prioritization heuristics separately to chrY when 
+                    --prot_prioritize is enabled. [default=False]
+--rDNA_separate     separate annotation for rDNA arrays. Requires --annot_2. 
                     [default=False]
 --annot_2 FILE      secondary annotation file. Required when either (or both) of 
                     previous two options is enabled.

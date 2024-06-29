@@ -1,6 +1,8 @@
-from liftoff import write_new_gff, liftover_types, polish, align_features, lift_features
+from liftoff import write_new_gff, liftover_types, extract_features, polish, align_features, lift_features
 import argparse
 from pyfaidx import Fasta, Faidx
+import subprocess
+import os
 
 
 
@@ -13,39 +15,102 @@ def main(arglist=None):
 
 
 def run_all_liftoff_steps(args):
-    if args.chroms is not None:
-        ref_chroms, target_chroms = parse_chrm_files(args.chroms)
-    else:
-        ref_chroms = [args.reference]
-        target_chroms = [args.target]
-    parent_features_to_lift = get_parent_features_to_lift(args.f)
     lifted_feature_list = {}
     unmapped_features = []
-    feature_db, feature_hierarchy, ref_parent_order = liftover_types.lift_original_annotation(ref_chroms, target_chroms,
-                                                                                              lifted_feature_list, args,
-                                                                                              unmapped_features,
-                                                                                              parent_features_to_lift)
 
-    unmapped_features = map_unmapped_features(unmapped_features, target_chroms, lifted_feature_list, feature_db,
-                                              feature_hierarchy, ref_parent_order, args)
-    map_features_from_unplaced_seq(unmapped_features, lifted_feature_list, feature_db, feature_hierarchy,
-                                   ref_parent_order, args)
-    write_unmapped_features_file(args.u, unmapped_features)
-    map_extra_copies(args, lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order)
+    # ---------------------------------------------
+    # build database
+    # ---------------------------------------------
+    if args.chroms:
+        ref_chroms, target_chroms = parse_chrm_files(args.chroms)
+    else:
+        ref_chroms, target_chroms = [args.reference], [args.target]
+    parent_features_to_lift = get_parent_features_to_lift(args.f)
 
-    if args.cds and args.polish is False:
+    all_features = parent_features_to_lift + ['gene_pc', 'gene_pseudo']
+    feature_hierarchy, feature_db, ref_parent_order = extract_features.extract_features_to_lift(ref_chroms, 'chrm_by_chrm', all_features, args)
+
+    if not args.prot_prioritize:
+        # ---------------------------------------------
+        # regular mode
+        # ---------------------------------------------
+        log('Aligning all feature types.')
+        liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, all_features)
+        if len(unmapped_features) > 0 and target_chroms[0] != args.target:
+            log("Mapping unaligned features against all.")
+            unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, all_features)
+        if args.copies:
+            log("Mapping extra copies against all.")
+            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, all_features)
+    else:
+        # ---------------------------------------------
+        # liftover protein-coding genes
+        # ---------------------------------------------
+        log('Aligning protein-coding features.')
+        liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, ['gene_pc'])
+        if len(unmapped_features) > 0 and target_chroms[0] != args.target:
+            log("Mapping unaligned features against all.")
+            unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, ['gene_pc'])
+        if args.copies:
+            log("Mapping extra copies against all.")
+            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, ['gene_pc'])
+        # ---------------------------------------------
+        # liftover pseudogenes
+        # ---------------------------------------------
+        log('Aligning pseudogene features.')
+        liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, ['gene_pseudo'])
+        if len(unmapped_features) > 0 and target_chroms[0] != args.target:
+            log("Mapping unaligned features against all.")
+            unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, ['gene_pseudo'])
+        if args.copies:
+            log("Mapping extra copies against all.")
+            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, ['gene_pseudo'])
+        # ---------------------------------------------
+        # align other types and unplaced genes
+        # ---------------------------------------------
+        log('Aligning other feature types.')
+        liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, parent_features_to_lift)
+        if len(unmapped_features) > 0 and target_chroms[0] != args.target:
+            log("Mapping unaligned features against all.")
+            unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, parent_features_to_lift)
+        if args.copies:
+            log("Mapping extra copies against all.")
+            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, parent_features_to_lift)
+
+    if args.unplaced and args.chroms:
+        log("Mapping unplaced genes")
+        ref_chroms, target_chroms = parse_chrm_files(args.unplaced)[0], [args.target]
+        liftover_types.map_unplaced_genes(unmapped_features, ref_chroms, target_chroms, lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, all_features)
+
+    # ---------------------------------------------
+    # output and post-processing
+    # ---------------------------------------------
+    if args.cds or args.polish:
         check_cds(lifted_feature_list, feature_hierarchy, args)
-    if args.polish:
-         print("polishing annotations")
-         check_cds(lifted_feature_list, feature_hierarchy, args)
-         write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
-         find_and_polish_broken_cds(args, lifted_feature_list,feature_hierarchy, ref_chroms,
-                                                          target_chroms,
-                               unmapped_features, feature_db, ref_parent_order)
-         if args.o != 'stdout':
-             args.o += "_polished"
     write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
 
+    if args.polish:
+        log("Polishing annotations")
+        find_and_polish_broken_cds(args, lifted_feature_list, feature_hierarchy, ref_chroms, target_chroms, unmapped_features, feature_db, ref_parent_order, ['gene_pc'])
+        if args.o == 'stdout':
+            write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
+        else:
+            old_o = args.o; args.o += '_polished'
+            write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
+            args.o = old_o
+
+    if args.fix_orfs:
+        run_fix_orfs(args)
+
+    with open(args.u, 'w') as file:
+        for f in unmapped_features:
+            file.write(f.id + "\n")
+    
+    log('Liftoff complete.')
+
+
+def log(msg):
+    print(f'[Info]: {msg}')
 
 
 def parse_args(arglist):
@@ -226,82 +291,43 @@ def parse_args(arglist):
 
 
 def parse_chrm_files(chroms_file):
-    chroms = open(chroms_file, 'r')
-    ref_chroms, target_chroms = [], []
-    for line in chroms.readlines():
-        ref_and_target_chrom = line.rstrip().split(",")
-        ref_chroms.append(ref_and_target_chrom[0])
-        if len(ref_and_target_chrom) > 1:
-            target_chroms.append(ref_and_target_chrom[1])
-    chroms.close()
+    with open(chroms_file, 'r') as chroms:
+        ref_chroms, target_chroms = [], []
+        for line in chroms.readlines():
+            kv_pair = line.rstrip().split(",")
+            ref_chroms.append(kv_pair[0])
+            assert(len(kv_pair) == 2)
+            target_chroms.append(kv_pair[1])
     return ref_chroms, target_chroms
 
 
 def get_parent_features_to_lift(feature_types_file):
     feature_types = ["gene"]
-    if feature_types_file is not None:
-        f = open(feature_types_file)
-        for line in f.readlines():
-            feature_types.append(line.rstrip())
+    if feature_types_file:
+        with open(feature_types_file, 'r') as file:
+            for line in file.readlines():
+                if line.rstrip() not in feature_types:
+                    feature_types.append(line.rstrip())
     return feature_types
 
 
-def map_unmapped_features(unmapped_features, target_chroms, lifted_feature_list, feature_db, feature_hierarchy,
-                          ref_parent_order, args):
-    if len(unmapped_features) > 0 and target_chroms[0] != args.target:
-        print("mapping unaligned features to whole genome")
-        ref_chroms = [args.reference]
-        target_chroms = [args.target]
-        return liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, ref_chroms, target_chroms,
-                                                             lifted_feature_list, feature_db, feature_hierarchy,
-                                                             ref_parent_order, args)
-    return unmapped_features
-
-
-def map_features_from_unplaced_seq(unmapped_features, lifted_feature_list, feature_db, feature_hierarchy,
-                                   ref_parent_order, args):
-    if args.unplaced is not None and args.chroms is not None:
-        print("mapping unplaced genes")
-        ref_chroms, target_chroms = parse_chrm_files(args.unplaced)
-        target_chroms = [args.target]
-        liftover_types.map_unplaced_genes(unmapped_features, ref_chroms, target_chroms,
-                                          lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args)
-
-
-def write_unmapped_features_file(out_arg, unmapped_features):
-    unmapped_out = open(out_arg, 'w')
-    for gene in unmapped_features:
-        unmapped_out.write(gene.id + "\n")
-    unmapped_out.close()
-
-
-def map_extra_copies(args, lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order):
-    if args.copies:
-        print("mapping gene copies")
-        ref_chroms = [args.reference]
-        target_chroms = [args.target]
-        liftover_types.map_extra_copies(ref_chroms, target_chroms, lifted_feature_list, feature_hierarchy, feature_db,
-                                        ref_parent_order, args)
-
-
 def find_and_polish_broken_cds(args, lifted_feature_list,feature_hierarchy, ref_chroms, target_chroms,
-                               unmapped_features, feature_db, ref_parent_order,):
+                               unmapped_features, feature_db, ref_parent_order, feature_types):
     args.subcommand = "polish"
     polish_lifted_features = {}
     ref_fa, target_fa = Fasta(args.reference), Fasta(args.target)
     for target_feature in lifted_feature_list:
         aligned_segments_new = {}
         if polish.polish_annotations(lifted_feature_list, ref_fa, target_fa, args, feature_hierarchy, target_feature):
-            aligned_segments = align_features.align_features_to_target(ref_chroms, target_chroms, args,
-                                                                       feature_hierarchy,
-                                                                       "chrm_by_chrm", unmapped_features)
+            aligned_segments = align_features.align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy, "chrm_by_chrm", unmapped_features, feature_types)
             aligned_segments_new[target_feature] = list(aligned_segments.values())[0]
             for seg in aligned_segments_new[target_feature]:
                 seg.query_name = target_feature
             args.d = 100000000
+            s_var = args.prot_S if args.prot_prioritize else args.s
             lift_features.lift_all_features(aligned_segments_new, args.a, feature_db, feature_hierarchy,
-                                            unmapped_features, polish_lifted_features, args.s, None, args,
-                                            ref_parent_order)
+                                            unmapped_features, polish_lifted_features, s_var, None, args,
+                                            ref_parent_order, feature_types)
 
     check_cds(polish_lifted_features, feature_hierarchy, args)
     for feature in polish_lifted_features:
@@ -329,6 +355,23 @@ def check_cds(feature_list, feature_hierarchy, args):
                                                              target_faidx, feature_list[target_feature])
 
 
+def run_fix_orfs(args):
+    log("Run fix_orfs.sh")
+    log("Check CDSes in reference.")
+    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.reference, '-p', args.prot, '-a', args.g, '-t', args.p, '-o', os.path.join(args.dir, 'p1'), '-d']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, _ = proc.communicate()
+    print(stdout.decode())
+
+    log("Fix protein coding annotations.")
+    broken_fn = os.path.join(args.dir, 'p1.broken.txt')
+    if args.o != 'stdout' and args.polish:
+        args.o += "_polished"
+    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.target, '-p', args.prot, '-a', args.o, '-t', args.p, '-o', os.path.join(args.dir, 'final'), '-b', broken_fn]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, _ = proc.communicate()
+    print(stdout.decode())
+    log(f"Fixed annotation in {args.dir}/final.adjusted_cds.gff")
 
 
 if __name__ == "__main__":
