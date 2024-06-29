@@ -6,13 +6,13 @@ from interlap import InterLap
 def fix_incorrectly_overlapping_features(all_lifted_features, features_to_check, all_aligned_segs,
                                          unmapped_features, threshold, feature_hierarchy, feature_db,
                                          ref_parent_order, seq_id_threshold, distance_factor,
-                                         max_overlap):
+                                         max_overlap, feature_type):
     features_to_remap, feature_locations = check_homologues(all_lifted_features, features_to_check,
                                                             feature_hierarchy.parents,
                                                             ref_parent_order, max_overlap)
     resolve_overlapping_homologues(all_aligned_segs, all_lifted_features, features_to_remap, unmapped_features,
                                    threshold, feature_hierarchy, feature_db, ref_parent_order, seq_id_threshold,
-                                   feature_locations, distance_factor, max_overlap)
+                                   feature_locations, distance_factor, max_overlap, feature_type)
 
 
 def check_homologues(all_lifted_features, lifted_features_to_check, parent_dict, ref_parent_order, max_overlap):
@@ -50,6 +50,17 @@ def compare_overlapping_feature(overlapping_feature, feature, remap_features, re
 
 
 def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features):
+    if already_in_list(feature, remap_features):
+        return feature
+    if already_in_list(overlap_feature, remap_features):
+        return overlap_feature
+    scoring = {'gene_pc': 2, 'gene_pseudo': 1}
+    f_score = scoring[feature.featuretype] if feature.featuretype in scoring else 0
+    o_score = scoring[overlap_feature.featuretype] if overlap_feature.featuretype in scoring else 0
+    if f_score < o_score:
+        return feature
+    if f_score > o_score:
+        return overlap_feature
     feature_is_copy = is_copy(feature)
     overlap_feature_is_copy = is_copy(overlap_feature)
     if feature_is_copy and overlap_feature_is_copy is False:
@@ -137,23 +148,17 @@ def is_shorter(feature1, feature2):
 
 def resolve_overlapping_homologues(all_aligned_segs, lifted_feature_list, features_to_remap, unmapped_features,
                                    threshold, feature_hierarchy, feature_db, ref_parent_order, seq_id_threshold,
-                                   feature_locations, distance_factor, max_overlap):
+                                   feature_locations, distance_factor, max_overlap, feature_type):
     iter = 0
     max_iter = 10 * len(features_to_remap)
-    while len(features_to_remap) > 0:
+    while len(features_to_remap) > 0 and iter <= max_iter:
         iter += 1
-        if iter > max_iter:
-            break
-        aligned_segs_for_remap = remove_features_and_get_alignments(features_to_remap, lifted_feature_list,
-                                                                    all_aligned_segs)
-        lift_features.lift_all_features(aligned_segs_for_remap, threshold, feature_db, feature_hierarchy,
-                                        unmapped_features,
+        aligned_segs_for_remap = remove_features_and_get_alignments(features_to_remap, lifted_feature_list, all_aligned_segs)
+        lift_features.lift_all_features(aligned_segs_for_remap, threshold, feature_db, feature_hierarchy,unmapped_features,
                                         lifted_feature_list, seq_id_threshold, feature_locations, distance_factor,
-                                        ref_parent_order)
-        features_to_check = get_successfully_remapped_features(lifted_feature_list, features_to_remap,
-                                                               )
-        features_to_remap, feature_locations = check_homologues(lifted_feature_list, features_to_check,
-                                                                feature_hierarchy.parents,
+                                        ref_parent_order, feature_type)
+        features_to_check = get_successfully_remapped_features(lifted_feature_list, features_to_remap)
+        features_to_remap, feature_locations = check_homologues(lifted_feature_list, features_to_check, feature_hierarchy.parents,
                                                                 ref_parent_order, max_overlap)
     remove_unresolved_features(features_to_remap, feature_hierarchy.parents, lifted_feature_list, unmapped_features)
     return lifted_feature_list
@@ -162,8 +167,9 @@ def resolve_overlapping_homologues(all_aligned_segs, lifted_feature_list, featur
 def remove_features_and_get_alignments(features_to_remap, lifted_feature_list, all_aligned_segs):
     aligned_segs_for_remap = {}
     for feature_to_remap in features_to_remap:
-        del lifted_feature_list[feature_to_remap]
-        aligned_segs_for_remap[feature_to_remap] = all_aligned_segs[feature_to_remap]
+        if feature_to_remap in all_aligned_segs:
+            del lifted_feature_list[feature_to_remap]
+            aligned_segs_for_remap[feature_to_remap] = all_aligned_segs[feature_to_remap]
     return aligned_segs_for_remap
 
 
