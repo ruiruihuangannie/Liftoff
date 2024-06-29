@@ -9,7 +9,10 @@ from liftoff import aligned_seg, liftoff_utils
 from os import path
 
 
-def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy, liftover_type, unmapped_features):
+def cigar_dict():
+    return {"insertion": 1, "deletion": 2, "hard_clip": 5, "match": 7, "mismatch": 8}
+
+def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy, liftover_type, unmapped_features, feature_type):
     if args.subcommand == "polish":
         sam_files = [args.dir + "/polish.sam"]
     else:
@@ -18,9 +21,8 @@ def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy,
         threads_per_alignment = max(1, math.floor(int(args.p) / len(ref_chroms)))
         sam_files = []
         pool = Pool(int(args.p))
-        print("aligning features")
-        func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size,
-                       liftover_type)
+        print(f"[Info]: Running minimap2 with {args.p} threads.")
+        func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size, liftover_type, feature_type)
         for result in pool.imap_unordered(func, np.arange(0, len(target_chroms))):
             sam_files.append(result)
         pool.close()
@@ -45,14 +47,14 @@ def get_genome_size(target_fasta_dict):
     return genome_size
 
 
-def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, liftover_type, index):
-    max_single_index_size = 4000000000
-    features_file, features_name = get_features_file(ref_chroms, args, liftover_type, index)
-    target_file, output_file = get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args)
-    threads_arg = str(threads)
+def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, liftover_type, feature_type, index):
+    features_file, features_name = get_features_file(ref_chroms, args, liftover_type, feature_type, index)
+    target_file,   output_file   = get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args, feature_type)
+    threads_arg   = str(threads)
     minimap2_path = get_minimap_path(args)
     target_prefix = get_target_prefix_name(target_chroms, index, args, liftover_type)
-    if genome_size > max_single_index_size:
+    MAX_SINGLE_INDEX_SIZE = 4000000000
+    if genome_size > MAX_SINGLE_INDEX_SIZE:
         split_prefix = args.dir + "/" + features_name + "_to_" + target_prefix + "_split"
         command = [minimap2_path, '-o', output_file, target_file, features_file] + args.mm2_options.split(" ") + [
             "--split-prefix", split_prefix, '-t', threads_arg]
@@ -65,7 +67,7 @@ def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, l
     return output_file
 
 
-def get_features_file(ref_chroms, args, liftover_type, index):
+def get_features_file(ref_chroms, args, liftover_type, feature_type, index):
     if ref_chroms[index] == args.reference and (liftover_type == "chrm_by_chrm" or liftover_type == "copies"):
         features_name = 'reference_all'
     elif liftover_type == "unmapped":
@@ -74,17 +76,19 @@ def get_features_file(ref_chroms, args, liftover_type, index):
         features_name = "unplaced"
     else:
         features_name = ref_chroms[index]
-    return args.dir + "/" + features_name + "_genes.fa", features_name
+    suffix = feature_type[0] if feature_type in [['gene_pc'], ['gene_pseudo']] else 'gene'
+    return f'{args.dir}/{features_name}_{suffix}.fa', features_name
 
 
-def get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args):
+def get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args, feature_type):
     if liftover_type != "chrm_by_chrm" or target_chroms[0] == args.target:
         target_file = args.target
         out_file_target = "target_all"
     else:
         target_file = args.dir + "/" + target_chroms[index] + ".fa"
         out_file_target = target_chroms[index]
-    output_file = args.dir + "/" + features_name + "_to_" + out_file_target + ".sam"
+    suffix = feature_type[0] if feature_type in [['gene_pc'], ['gene_pseudo']] else 'gene'
+    output_file = args.dir + "/" + features_name + "_to_" + out_file_target + "_" + suffix + ".sam"
     return target_file, output_file
 
 
@@ -128,17 +132,15 @@ def parse_alignment(file, feature_hierarchy, unmapped_features, search_type):
     name_dict = {}
     align_count_dict = {}
     for ref_seq in sam_file_iter:
-        if ref_seq.is_unmapped is False:
-            aln_id = add_alignment(ref_seq,  align_count_dict, search_type, name_dict,aln_id, feature_hierarchy,
-                                   all_aligned_blocks)
-        else:
+        if ref_seq.is_unmapped:
             unmapped_features.append(feature_hierarchy.parents[ref_seq.query_name])
+        else:
+            aln_id = add_alignment(ref_seq, align_count_dict, search_type, name_dict,aln_id, feature_hierarchy, all_aligned_blocks)
     remove_alignments_without_children(all_aligned_blocks, unmapped_features, feature_hierarchy)
     return all_aligned_blocks
 
 
-def add_alignment(ref_seq, align_count_dict, search_type, name_dict, aln_id, feature_hierarchy,
-                  all_aligned_blocks):
+def add_alignment(ref_seq, align_count_dict, search_type, name_dict, aln_id, feature_hierarchy, all_aligned_blocks):
     ref_seq.query_name = edit_name(search_type, ref_seq, name_dict)
     aln_id += 1
     if ref_seq.query_name in align_count_dict:
@@ -165,43 +167,38 @@ def edit_name(search_type, ref_seq, name_dict):
 
 
 def get_aligned_blocks(alignment, aln_id, feature_hierarchy, search_type):
-    cigar_operations = get_cigar_operations()
-    cigar = alignment.cigar
-    parent = feature_hierarchy.parents[liftoff_utils.convert_id_to_original(alignment.query_name)]
-    query_start, query_end = get_query_start_and_end(alignment, cigar, cigar_operations)
-    children = feature_hierarchy.children[liftoff_utils.convert_id_to_original(alignment.query_name)]
+    cigar    = alignment.cigar
+    gene_id  = liftoff_utils.convert_id_to_original(alignment.query_name)
+    parent   = feature_hierarchy.parents[gene_id]
+    query_start, query_end = get_query_start_and_end(alignment, cigar)
+    children = feature_hierarchy.children[gene_id]
     end_to_end = is_end_to_end_alignment(parent, query_start, query_end)
-    if search_type == "copies" and end_to_end is False:
+    if search_type == "copies" and not end_to_end:
         return []
     reference_block_start, reference_block_pos = alignment.reference_start, alignment.reference_start
     query_block_start, query_block_pos = query_start, query_start
     new_blocks, mismatches = [], []
     merged_children_coords = liftoff_utils.merge_children_intervals(children)
     for operation, length in cigar:
-        if base_is_aligned(operation, cigar_operations):
+        if base_is_aligned(operation):
             query_block_pos, reference_block_pos = add_aligned_base(operation, query_block_pos, reference_block_pos,
-                                                                    length, cigar_operations, mismatches)
+                                                                    length, mismatches)
             if query_block_pos == query_end:
                 add_block(query_block_pos, reference_block_pos, aln_id, alignment, query_block_start,
                           reference_block_start, mismatches, new_blocks, merged_children_coords, parent)
                 break
-        elif is_alignment_gap(operation, cigar_operations):
+        elif is_alignment_gap(operation):
             add_block(query_block_pos, reference_block_pos, aln_id, alignment, query_block_start, reference_block_start,
                       mismatches, new_blocks, merged_children_coords, parent)
             mismatches, query_block_start, reference_block_start, query_block_pos, reference_block_pos = \
-                end_block_at_gap(
-                    operation, query_block_pos, reference_block_pos, length, cigar_operations)
+                end_block_at_gap(operation, query_block_pos, reference_block_pos, length)
     return new_blocks
 
 
-def get_cigar_operations():
-    return {"insertion": 1, "deletion": 2, "hard_clip": 5, "match": 7, "mismatch": 8}
-
-
-def get_query_start_and_end(alignment, cigar, cigar_operations):
+def get_query_start_and_end(alignment, cigar):
     query_start = alignment.query_alignment_start
-    query_end = alignment.query_alignment_end
-    if cigar[0][0] == cigar_operations["hard_clip"]:
+    query_end   = alignment.query_alignment_end
+    if cigar[0][0] == cigar_dict()["hard_clip"]:
         query_start += cigar[0][1]
         query_end += cigar[0][1]
     return query_start, query_end
@@ -211,25 +208,22 @@ def is_end_to_end_alignment(parent, query_start, query_end):
     return parent.end - parent.start + 1 == query_end - query_start
 
 
-def base_is_aligned(operation, cigar_operations):
-    return operation == cigar_operations["match"] or operation == cigar_operations["mismatch"]
+def base_is_aligned(operation):
+    return operation in [cigar_dict()["match"], cigar_dict()["mismatch"]]
 
 
-def add_aligned_base(operation, query_block_pos, reference_block_pos, length, cigar_operations, mismatches):
-    if operation == cigar_operations["mismatch"]:
+def add_aligned_base(operation, query_block_pos, reference_block_pos, length, mismatches):
+    if operation == cigar_dict()["mismatch"]:
         for i in range(query_block_pos, query_block_pos + length):
             mismatches.append(i)
-    query_block_pos, reference_block_pos = adjust_position(operation, query_block_pos, reference_block_pos,
-                                                           length, cigar_operations)
+    query_block_pos, reference_block_pos = adjust_position(operation, query_block_pos, reference_block_pos, length)
     return query_block_pos, reference_block_pos
 
 
-def adjust_position(operation, query_block_pos, reference_block_pos, length, cigar_operations):
-    if operation == cigar_operations["match"] or operation == cigar_operations["mismatch"] or operation == \
-            cigar_operations["insertion"]:
+def adjust_position(operation, query_block_pos, reference_block_pos, length):
+    if operation in [cigar_dict()["match"], cigar_dict()["mismatch"], cigar_dict()["insertion"]]:
         query_block_pos += length
-    if operation == cigar_operations["match"] or operation == cigar_operations["mismatch"] or operation == \
-            cigar_operations["deletion"]:
+    if operation in [cigar_dict()["match"], cigar_dict()["mismatch"], cigar_dict()["deletion"]]:
         reference_block_pos += length
     return query_block_pos, reference_block_pos
 
@@ -238,16 +232,12 @@ def add_block(query_block_pos, reference_block_pos, aln_id, alignment, query_blo
               mismatches, new_blocks, merged_children_coords, parent):
     query_block_end = query_block_pos - 1
     reference_block_end = reference_block_pos - 1
-    new_block = aligned_seg.aligned_seg(aln_id, alignment.query_name, alignment.reference_name, query_block_start,
-                                        query_block_end,
-                                        reference_block_start, reference_block_end, alignment.is_reverse,
+    new_block = aligned_seg.aligned_seg(aln_id, alignment.query_name, alignment.reference_name, query_block_start, 
+                                        query_block_end, reference_block_start, reference_block_end, alignment.is_reverse,
                                         np.array(mismatches).astype(int))
     overlapping_children = find_overlapping_children(new_block, merged_children_coords, parent)
     if overlapping_children != []:
-
         new_blocks.append(new_block)
-
-
 
 
 def find_overlapping_children(aln, children_coords, parent):
@@ -263,14 +253,13 @@ def find_overlapping_children(aln, children_coords, parent):
     return overlapping_children
 
 
-def is_alignment_gap(operation, cigar_operations):
-    return operation == cigar_operations["insertion"] or operation == cigar_operations["deletion"]
+def is_alignment_gap(operation):
+    return operation in [cigar_dict()["insertion"], cigar_dict()["deletion"]]
 
 
-def end_block_at_gap(operation, query_block_pos, reference_block_pos, length, cigar_operations):
+def end_block_at_gap(operation, query_block_pos, reference_block_pos, length):
     mismatches = []
-    query_block_pos, reference_block_pos = adjust_position(operation, query_block_pos, reference_block_pos,
-                                                           length, cigar_operations)
+    query_block_pos, reference_block_pos = adjust_position(operation, query_block_pos, reference_block_pos, length)
     query_block_start = query_block_pos
     reference_block_start = reference_block_pos
     return mismatches, query_block_start, reference_block_start, query_block_pos, reference_block_pos
