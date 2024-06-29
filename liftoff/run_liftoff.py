@@ -109,6 +109,50 @@ def parse_args(arglist):
                                                            "target and "
                                                            "reference; by default F=0.0")
 
+    pcgrp = parser.add_argument_group('Protein-Coding Genes')
+    pcgrp.add_argument(
+        '--prot_prioritize', default=True, action='store_true', 
+        help='heuristics that prioritizes protein-coding genes during lift-over. [default=True]'
+    )
+    pcgrp.add_argument(
+        '--prot_S', default=0.9, type=float, metavar='FLOAT',
+        help='protein S-Score. When --prot_prioritize is True, the -s score for lifting over proteins. [default=0.9]',
+    )
+    pcgrp.add_argument(
+        '--fix_orfs', default=False, action='store_true',
+        help='fix open-reading-frames of CDSes. Similar to --polish and could '
+             'be used with --polish but with more stringent checks and fixes for '
+             'in-frame stop codons and protein truncations. Requires --prot. [default=False]'
+    )
+    pcgrp.add_argument(
+        '--prot', metavar='FILE',
+        help='protein sequence file. Required when --fix_orfs is True. Recommand '
+             'to use "hg38" for human genome.'
+    )
+
+    regiongrp = parser.add_argument_group('Special genomic regions')
+    regiongrp.add_argument(
+        '--chrY_separate', default=False, action='store_true', 
+        help='separate annotation for chromosome Y. Requires --annot_2. Applies ' 
+             'protein prioritization heuristics separately to chrY when '
+             '--prot_prioritize is enabled. [default=False]'
+    )
+    regiongrp.add_argument(
+        '--rDNA_separate', default=False, action='store_true',
+        help='separate annotation for rDNA arrays. Requires --annot_2. [default=False]',
+    )
+    regiongrp.add_argument(
+        '--annot_2', metavar='FILE',
+        help='secondary annotation file. Required when either (or both) of previous two options is enabled.'
+    )
+    regiongrp.add_argument(
+        '--short_gene', action='store_true',
+        help='handles short regions like VDJ regions that are poorly managed by '
+             'default minimap2 parameters. Uses minimap2 -sr for genes between '
+             '30 and 100 base pairs, and Bowtie2 for genes shorter than 30 bps. '
+             '[default=False]'
+    )
+
     parser.add_argument('-V', '--version', help='show program version', action='version', version='v1.6.3')
     parser.add_argument(
         '-p', default=1, type=int, metavar='P', help='use p parallel processes to accelerate alignment; by default p=1'
@@ -147,14 +191,15 @@ def parse_args(arglist):
     parser.add_argument('-gap_extend', default=1, metavar='GE', help="gap extend penalty in exons when finding best "
                                                                      "mapping; by default GE=1", type=int)
     parser.add_argument('-subcommand', required=False,  help=argparse.SUPPRESS)
-    parser.add_argument('-polish', required=False, action='store_true', default = False)
+    parser.add_argument('-polish', required=False, action='store_true', default = False,
+                        help="re-align exons to restore proper coding sequences in cases of start/stop codon loss or in-frame stop codons")
     parser.add_argument('-cds', required=False, action="store_true", default=True, help="annotate status of each CDS "
                                                                                         "(partial, missing start, "
                                                                                         "missing stop, inframe stop "
                                                                                         "codon)")
     parser._positionals.title = 'Required input (sequences)'
     parser._optionals.title = 'Miscellaneous settings'
-    parser._action_groups = [parser._positionals, refrgrp, outgrp, aligngrp, parser._optionals]
+    parser._action_groups = [parser._positionals, refrgrp, outgrp, aligngrp, pcgrp, regiongrp, parser._optionals]
     args = parser.parse_args(arglist)
     if '-a' not in args.mm2_options:
         args.mm2_options += ' -a'
@@ -166,10 +211,17 @@ def parse_args(arglist):
         args.mm2_options += " -p 0.5"
     if '--end-bonus' not in args.mm2_options:
         args.mm2_options += "--end-bonus 5"
-    if (float(args.s) > float(args.sc)):
+    if float(args.s) > float(args.sc):
         parser.error("-sc must be greater than or equal to -s")
-    if (args.chroms is None and args.unplaced is not None):
-        parser.error("-unplaced must be used with -chroms")
+    if args.chroms is None and args.unplaced is not None:
+        parser.error("-unplaced must be used with -chroms")\
+
+    if args.chrY_separate and not args.annot_2:
+        parser.error("--chrY-separate must be used with --annot-2")
+    if args.rDNA_separate and not args.annot_2:
+        parser.error("--rDNA_separate must be used with --annot-2")
+    if args.fix_orfs and not args.prot:
+        parser.error("--fix_orfs must be used with args.prot")
     return args
 
 

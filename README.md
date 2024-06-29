@@ -1,24 +1,37 @@
-This is Annie's private repo forked from Liftoff. It's still in the development stage and some options might not be fully implemented :)
+This is Annie's private fork. It's still in the development stage and some options might not be fully implemented :)
 
 ### Purpose of this repo
 
-Liftoff is the state-of-the-art (SoTA) tool for intra-species lift-over of genomic features. However, it faces limitations with high-copy-number genes in large gene families (e.g., OR4F, SSU72, USP17, FAM90A, SSU72L), repetitive rDNA arrays encoding ribosomes, and highly variable VDJ segments. These challenges necessitate an extension of Liftoff’s existing capabilities to deliver more controlled lift-over results.
+Liftoff is the SoTA tool for intra-species lift-over of genome assembly annotations. Still, it's default parameters perform poorly on high-copy-number genes in large gene families, repetitive rDNA arrays, and highly variable VDJ regions, which necessitates an extension of Liftoff's existing capabilities for more control over the lift-over process.
 
 ### Enhanced Features
 
 ```shell
 Protein-Coding Genes:
---prot-prioritize	heuristics that prioritizes protein-coding genes during lift-over. [default=True]
---prot-S FLOAT		protein S-Score. When --prot-prioritize is True, the -s score for lifting over proteins [default=0.9]
---fix-orfs		fix open-reading-frames of CDSes. Similar to --polish and could be used with --polish but with more stringent checks and fixes for in-frame stop codons and protein truncations. Requires --prot. [default=False]
---prot FILE		protein sequence file. Required when --fix-orfs is True. Use 'hg38' for human genome.
+--prot_prioritize   heuristics that prioritizes protein-coding genes during lift-over. 
+                    [default=True]
+--prot_S FLOAT      protein S-Score. When --prot-prioritize is True, the -s score for 
+                    lifting over proteins. [default=0.9]
+--fix_orfs          fix open-reading-frames of CDSes. Similar to --polish and could 
+                    be used with --polish but with more stringent checks and fixes for 
+                    in-frame stop codons and protein truncations. Requires --prot. 
+                    [default=False]
+--prot FILE         protein sequence file. Required when --fix-orfs is True. Recommand 
+                    to use 'hg38' for human genome.
 
 
 Special genomic regions:
---chrY-separate		separate annotation for chromosome Y. Requires --secondary-annot. Applies protein prioritization heuristics separately to chrY when --prot-prioritize is enabled. [default=False]
---rRNA-separate		separate annotation for rDNA arrays. Requires --secondary-annot. [default=False]
---secondary-annot FILE	secondary annotation file. Requires when either (or both) of previous two options is enabled.
---short-gene-mapping	handles short regions like VDJ regions that are poorly managed by default minimap2 parameters. Uses minimap2 -sr for genes between 50 and 100 base pairs, and Bowtie2 for genes below 50 base pairs. [default=False]
+--chrY_separate     separate annotation for chromosome Y. Requires --secondary-annot. 
+                    Applies protein prioritization heuristics separately to chrY when 
+                    --prot-prioritize is enabled. [default=False]
+--rDNA_separate     separate annotation for rDNA arrays. Requires --secondary-annot. 
+                    [default=False]
+--annot_2 FILE      secondary annotation file. Required when either (or both) of 
+                    previous two options is enabled.
+--short_gene        handles short regions like VDJ regions that are poorly managed by 
+                    default minimap2 parameters. Uses minimap2 -sr for genes between 
+                    30 and 100 base pairs, and Bowtie2 for genes shorter than 30 bps. 
+                    [default=False]
 ```
 ---
 # Liftoff
