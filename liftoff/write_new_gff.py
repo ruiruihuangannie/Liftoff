@@ -10,10 +10,7 @@ def write_header(f, out_type):
 
 
 def write_new_gff(lifted_features, args, feature_db):
-    if args.o != 'stdout':
-        f = open(args.o, 'w')
-    else:
-        f = sys.stdout
+    f = sys.stdout if args.o == 'stdout' else open(args.o, 'w')
     out_type = feature_db.dialect['fmt']
     write_header(f, out_type)
     parents = liftoff_utils.get_parent_list(lifted_features)
@@ -105,6 +102,8 @@ def make_gff_line(attr_dict, feature):
                 value_str += value + ","
             if attr != "ID":
                 attributes_str += (attr + "=" + value_str[:-1] + ";")
+    if feature.featuretype in ['gene_pc', 'gene_pseudo']:
+        feature.featuretype = "gene"
     return feature.seqid + "\t" + feature.source + "\t" + feature.featuretype + "\t" + str(feature.start) + \
            "\t" + str(feature.end) + "\t" + "." + "\t" + feature.strand + "\t" + feature.frame + "\t" + attributes_str[:-1]
 
@@ -130,5 +129,7 @@ def make_gtf_line(attr_dict, feature):
                 for value in attr_dict[attr]:
                      value_str += value + ","
                 attributes_str += (attr + " " + '"' + value_str[:-1] + '"' + "; ")
+    if feature.featuretype in ['gene_pc', 'gene_pseudo']:
+        feature.featuretype = "gene"
     return feature.seqid + "\t" + feature.source + "\t" + feature.featuretype + "\t" + str(feature.start) + \
            "\t" + str(feature.end) + "\t" + "." + "\t" + feature.strand + "\t" + "." + "\t" + attributes_str
