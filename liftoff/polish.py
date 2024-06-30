@@ -20,8 +20,7 @@ def polish_annotations(feature_list, ref_faidx, target_faidx, args, feature_heir
         output_sam = open(args.dir+"/polish.sam", 'w')
         write_sam_header(target_faidx, output_sam)
         target_gene = target_sub_features[0]
-        polish_annotation(ref_gene, target_gene, ref_sub_features, target_sub_features, ref_faidx,
-                          target_faidx,output_sam)
+        polish_single_annotation(ref_gene, target_gene, ref_sub_features, target_sub_features, ref_faidx, target_faidx,output_sam)
         return True
     return False
 
@@ -35,10 +34,8 @@ def find_and_check_cds(target_sub_features, ref_sub_features, ref_faidx, target_
     total_cds = 0
     num_good_cds = 0
     if len(cds_features) > 0:
-        total_cds, num_good_cds = count_good_cds(cds_features, ref_faidx, target_faidx, ref_sub_features,
-                                                 target_sub_features, feature_list)
+        num_good_cds = count_good_cds(cds_features, ref_faidx, target_faidx, ref_sub_features, target_sub_features, feature_list)
         target_sub_features[0].attributes["valid_ORFs"] = [str(num_good_cds)]
-    return total_cds, num_good_cds
 
 
 def write_sam_header(target_fa, output_sam):
@@ -51,12 +48,10 @@ def get_cds_features(sub_features):
 
 
 def count_good_cds(cds_features, ref_faidx, target_faidx, ref_children, target_sub_features, feature_list):
-    grouped_cds = group_cds_by_tran(cds_features)
     good_cds_count = 0
-    for cds_group in grouped_cds:
+    for cds_group in group_cds_by_tran(cds_features):
         cds_seq = get_seq(cds_group, target_faidx)
-        transcript = [feature for feature in target_sub_features if feature.id == cds_group[0].attributes["Parent"][
-            0]][0]
+        transcript = [feature for feature in target_sub_features if feature.id == cds_group[0].attributes["Parent"][0]][0]
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             protein = cds_seq.translate()
@@ -82,7 +77,7 @@ def count_good_cds(cds_features, ref_faidx, target_faidx, ref_children, target_s
             good_cds_count +=1
         if longest_ORF != cds_seq:
             adjust_cds_coords(cds_group,longest_ORF_coords, feature_list )
-    return len(grouped_cds), good_cds_count
+    return good_cds_count
 
 
 def get_longest_ORF(cds_seq):
@@ -161,7 +156,7 @@ def matches_ref(cds_group, ref_fa, ref_children, target_protein):
     return target_protein == ref_protein
 
 
-def polish_annotation(ref_gene, target_gene, ref_children, target_children, ref_fa, target_fa, output_sam):
+def polish_single_annotation(ref_gene, target_gene, ref_children, target_children, ref_fa, target_fa, output_sam):
     ref_exons = [feature for feature in ref_children if feature.featuretype == "exon"]
     target_exons = [feature for feature in target_children if feature.featuretype == "exon"]
     ref_CDS = [feature for feature in ref_children if feature.featuretype == "CDS"]

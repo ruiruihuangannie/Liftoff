@@ -1,4 +1,5 @@
 import numpy as np
+import time, subprocess
 
 
 def count_overlap(start1, end1, start2, end2):
@@ -120,3 +121,10 @@ def find_nonoverlapping_upstream_neighbor(parent_order, feature_name):
         return None
     else:
         return neighbor_id
+
+
+def run_subprocess(cmd, out_fn):
+    with open(out_fn, 'a') as file:
+        file.write(f'[Time] {time.ctime(time.time())}\n')
+        proc = subprocess.Popen(cmd, stdout=file, stderr=subprocess.STDOUT, text=True)
+        proc.communicate()

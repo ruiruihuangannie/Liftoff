@@ -30,7 +30,7 @@ def run_all_liftoff_steps(args):
     all_features = parent_features_to_lift + ['gene_pc', 'gene_pseudo']
     feature_hierarchy, feature_db, ref_parent_order = extract_features.extract_features_to_lift(ref_chroms, 'chrm_by_chrm', all_features, args)
 
-    if not args.prot_prioritize:
+    if args.no_prot_prior:
         # ---------------------------------------------
         # regular mode
         # ---------------------------------------------
@@ -85,9 +85,12 @@ def run_all_liftoff_steps(args):
     # ---------------------------------------------
     # output and post-processing
     # ---------------------------------------------
-    if args.cds or args.polish:
+    if not args.cds and not args.polish:
+        write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
+    else:
         check_cds(lifted_feature_list, feature_hierarchy, args)
-    write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
+        if args.cds and not args.polish:
+            write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
 
     if args.polish:
         log("Polishing annotations")
@@ -176,12 +179,12 @@ def parse_args(arglist):
 
     pcgrp = parser.add_argument_group('Protein-Coding Genes')
     pcgrp.add_argument(
-        '--prot_prioritize', default=True, action='store_true', 
-        help='heuristics that prioritizes protein-coding genes during lift-over. [default=True]'
+        '--no_prot_prior', default=False, action='store_true', 
+        help='disable heuristics that prioritizes protein-coding genes during lift-over. [default=False]'
     )
     pcgrp.add_argument(
         '--prot_S', default=0.9, type=float, metavar='FLOAT',
-        help='protein S-Score. When --prot_prioritize is True, the -s score for lifting over proteins. [default=0.9]',
+        help='protein S-Score. When protein-prioritize is True, the -s score for lifting over proteins. [default=0.9]',
     )
     pcgrp.add_argument(
         '--fix_orfs', default=False, action='store_true',
@@ -200,7 +203,7 @@ def parse_args(arglist):
         '--chrY_separate', default=False, action='store_true', 
         help='separate annotation for chromosome Y. Requires --annot_2. Applies ' 
              'protein prioritization heuristics separately to chrY when '
-             '--prot_prioritize is enabled. [default=False]'
+             'protein-prioritize is enabled. [default=False]'
     )
     regiongrp.add_argument(
         '--rDNA_separate', default=False, action='store_true',
@@ -324,7 +327,7 @@ def find_and_polish_broken_cds(args, lifted_feature_list,feature_hierarchy, ref_
             for seg in aligned_segments_new[target_feature]:
                 seg.query_name = target_feature
             args.d = 100000000
-            s_var = args.prot_S if args.prot_prioritize else args.s
+            s_var = args.s if args.no_prot_prior else args.prot_S
             lift_features.lift_all_features(aligned_segments_new, args.a, feature_db, feature_hierarchy,
                                             unmapped_features, polish_lifted_features, s_var, None, args,
                                             ref_parent_order, feature_types)
@@ -351,13 +354,14 @@ def check_cds(feature_list, feature_hierarchy, args):
     for target_feature in feature_list:
         target_sub_features = polish.get_sub_features(feature_list, target_feature)
         ref_sub_features = polish.get_sub_features(feature_hierarchy.children, target_sub_features[0].id)
-        polish.find_and_check_cds(target_sub_features, ref_sub_features, ref_faidx,
-                                                             target_faidx, feature_list[target_feature])
+        polish.find_and_check_cds(target_sub_features, ref_sub_features, ref_faidx, target_faidx, feature_list[target_feature])
 
 
 def run_fix_orfs(args):
     log("Run fix_orfs.sh")
     log("Check CDSes in reference.")
+    if args.prot == 'hg38':
+        args.prot = os.path.join(os.getcwd(), '..', 'hg38_proteins.faa')
     cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.reference, '-p', args.prot, '-a', args.g, '-t', args.p, '-o', os.path.join(args.dir, 'p1'), '-d']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, _ = proc.communicate()

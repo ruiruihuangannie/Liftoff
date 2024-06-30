@@ -7,7 +7,7 @@ def lift_original_annotation(ref_chroms, target_chroms, lifted_features_list, ar
         min_cov, min_seqid = 0.05, 0.05
     else:
         min_cov = args.a 
-        min_seqid = args.prot_S if feature_type == ['gene_pc'] else args.s
+        min_seqid = args.prot_S if not args.no_prot_prior and feature_type == ['gene_pc'] else args.s
     align_and_lift_features(ref_chroms, target_chroms, args, feature_hierarchy, "chrm_by_chrm", unmapped_features, 
                             feature_db, lifted_features_list, ref_parent_order, min_cov, min_seqid, args.overlap, 
                             feature_type)
@@ -34,7 +34,7 @@ def map_unmapped_genes_agaisnt_all(unmapped_features, ref_chroms, target_chroms,
     unmapped_dict = get_unmapped_genes(unmapped_features)
     if args.exclude_partial:
         min_cov = args.a
-        min_seqid = args.prot_S if feature_type == ['gene_pc'] else args.s
+        min_seqid = args.prot_S if not args.no_prot_prior and feature_type == ['gene_pc'] else args.s
     else:
         min_cov, min_seqid = 0.05, 0.05
     liftover_type = "unmapped"

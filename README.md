@@ -11,9 +11,9 @@ One existing testing script is on salz under `/ccb/salz4-3/rhuang38/tests/pipeli
 
 ```
 Protein-Coding Genes:
---prot_prioritize   heuristics that prioritizes protein-coding genes during lift-over. 
-                    [default=True]
---prot_S FLOAT      protein S-Score. When --prot-prioritize is True, the -s score for 
+--no_prot_prior     disable heuristics that prioritizes protein-coding genes during lift-over. 
+                    [default=False]
+--prot_S FLOAT      protein S-Score. When --prot_prioritize is True, the -s score for 
                     lifting over proteins. [default=0.9]
 --fix_orfs          fix open-reading-frames of CDSes. Similar to --polish and could 
                     be used with --polish but with more stringent checks and fixes for 
