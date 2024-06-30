@@ -38,7 +38,7 @@ def map_unmapped_genes_agaisnt_all(unmapped_features, ref_chroms, target_chroms,
     else:
         min_cov, min_seqid = 0.05, 0.05
     liftover_type = "unmapped"
-    extract_features.get_gene_sequences(unmapped_dict, ref_chroms, args, liftover_type)
+    extract_features.get_gene_sequences(unmapped_dict, ref_chroms, args, liftover_type, feature_type)
     unmapped_features = []
     align_and_lift_features(ref_chroms, target_chroms, args, feature_hierarchy, liftover_type, unmapped_features, 
                             feature_db, lifted_features_list, ref_parent_order, min_cov, min_seqid, args.overlap, 

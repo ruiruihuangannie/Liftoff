@@ -21,7 +21,6 @@ def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy,
         threads_per_alignment = max(1, math.floor(int(args.p) / len(ref_chroms)))
         sam_files = []
         pool = Pool(int(args.p))
-        print(f"[Info]: Running minimap2 with {args.p} threads.")
         func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size, liftover_type, feature_type)
         for result in pool.imap_unordered(func, np.arange(0, len(target_chroms))):
             sam_files.append(result)

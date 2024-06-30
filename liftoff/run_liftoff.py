@@ -17,6 +17,9 @@ def main(arglist=None):
 def run_all_liftoff_steps(args):
     lifted_feature_list = {}
     unmapped_features = []
+    log_fn = os.path.join(args.dir, 'minimap.log')
+    if os.path.isfile(log_fn):
+        os.remove(log_fn)
 
     # ---------------------------------------------
     # build database
@@ -26,9 +29,9 @@ def run_all_liftoff_steps(args):
     else:
         ref_chroms, target_chroms = [args.reference], [args.target]
     parent_features_to_lift = get_parent_features_to_lift(args.f)
-
-    all_features = parent_features_to_lift + ['gene_pc', 'gene_pseudo']
-    feature_hierarchy, feature_db, ref_parent_order = extract_features.extract_features_to_lift(ref_chroms, 'chrm_by_chrm', all_features, args)
+    
+    all_features = parent_features_to_lift if args.no_prot_prior else parent_features_to_lift + ['gene_pc', 'gene_pseudo']
+    feature_hierarchy, feature_db, ref_parent_order = extract_features.extract_features_to_lift(ref_chroms, 'chrm_by_chrm', all_features, args, not args.no_prot_prior)
 
     if args.no_prot_prior:
         # ---------------------------------------------
@@ -89,25 +92,23 @@ def run_all_liftoff_steps(args):
         write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
     else:
         check_cds(lifted_feature_list, feature_hierarchy, args)
-        if args.cds and not args.polish:
-            write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
+        write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
 
     if args.polish:
         log("Polishing annotations")
-        find_and_polish_broken_cds(args, lifted_feature_list, feature_hierarchy, ref_chroms, target_chroms, unmapped_features, feature_db, ref_parent_order, ['gene_pc'])
+        find_and_polish_broken_cds(args, lifted_feature_list, feature_hierarchy, ref_chroms, target_chroms, unmapped_features, feature_db, ref_parent_order, all_features)
         if args.o == 'stdout':
             write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
         else:
-            old_o = args.o; args.o += '_polished'
+            args.o += '_polished'
             write_new_gff.write_new_gff(lifted_feature_list, args, feature_db)
-            args.o = old_o
-
-    if args.fix_orfs:
-        run_fix_orfs(args)
 
     with open(args.u, 'w') as file:
         for f in unmapped_features:
             file.write(f.id + "\n")
+
+    if args.fix_orfs:
+        run_fix_orfs(args)
     
     log('Liftoff complete.')
 
@@ -290,6 +291,8 @@ def parse_args(arglist):
         parser.error("--rDNA_separate must be used with --annot-2")
     if args.fix_orfs and not args.prot:
         parser.error("--fix_orfs must be used with args.prot")
+    if args.fix_orfs and not args.g:
+        parser.error("--fix_orfs must be used with a reference annotation instead of --db")
     return args
 
 
@@ -317,11 +320,14 @@ def get_parent_features_to_lift(feature_types_file):
 def find_and_polish_broken_cds(args, lifted_feature_list,feature_hierarchy, ref_chroms, target_chroms,
                                unmapped_features, feature_db, ref_parent_order, feature_types):
     args.subcommand = "polish"
-    polish_lifted_features = {}
+    polish_lifted_features = dict()
     ref_fa, target_fa = Fasta(args.reference), Fasta(args.target)
+
     for target_feature in lifted_feature_list:
+        tgt_gid = target_feature.split('_')[0]
         aligned_segments_new = {}
-        if polish.polish_annotations(lifted_feature_list, ref_fa, target_fa, args, feature_hierarchy, target_feature):
+        if feature_hierarchy.parents[tgt_gid].featuretype == 'gene_pc' and \
+           polish.polish_annotations(lifted_feature_list, ref_fa, target_fa, args, feature_hierarchy, target_feature):
             aligned_segments = align_features.align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy, "chrm_by_chrm", unmapped_features, feature_types)
             aligned_segments_new[target_feature] = list(aligned_segments.values())[0]
             for seg in aligned_segments_new[target_feature]:
@@ -361,21 +367,18 @@ def run_fix_orfs(args):
     log("Run fix_orfs.sh")
     log("Check CDSes in reference.")
     if args.prot == 'hg38':
-        args.prot = os.path.join(os.getcwd(), '..', 'hg38_proteins.faa')
-    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.reference, '-p', args.prot, '-a', args.g, '-t', args.p, '-o', os.path.join(args.dir, 'p1'), '-d']
+        args.prot = os.path.join(os.path.abspath("run_liftoff.py"), '..', 'hg38_proteins.faa')
+    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.reference, '-p', args.prot, '-a', args.g, '-t', str(args.p), '-o', os.path.join(args.dir, 'p1'), '-d']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, _ = proc.communicate()
     print(stdout.decode())
 
     log("Fix protein coding annotations.")
     broken_fn = os.path.join(args.dir, 'p1.broken.txt')
-    if args.o != 'stdout' and args.polish:
-        args.o += "_polished"
-    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.target, '-p', args.prot, '-a', args.o, '-t', args.p, '-o', os.path.join(args.dir, 'final'), '-b', broken_fn]
+    cmd = ['/ccb/sw/packages/fix_orfs/fix_orfs.sh', '-g', args.target, '-p', args.prot, '-a', args.o, '-t', str(args.p), '-o', os.path.join(args.dir, 'final'), '-b', broken_fn]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, _ = proc.communicate()
     print(stdout.decode())
-    log(f"Fixed annotation in {args.dir}/final.adjusted_cds.gff")
 
 
 if __name__ == "__main__":

@@ -195,13 +195,13 @@ def add_splice_sites(exons, parent):
             splice_sites.append([exon.end - 1, exon.end])
     return splice_sites
 
+
 def remove_splice_sites(exons, parent):
     for exon in exons:
         if exon.start  != parent.start:
             exon.start = exon.start + 2
         if exon.end  != parent.end:
             exon.end = exon.end - 2
-
 
 
 def find_overlapping_exon_groups(merged_ref_intervals, ref_exons):

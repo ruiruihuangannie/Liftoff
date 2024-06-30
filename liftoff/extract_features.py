@@ -10,18 +10,18 @@ import ujson as json
 
 
 
-def extract_features_to_lift(ref_chroms, liftover_type, parents_to_lift, args):
+def extract_features_to_lift(ref_chroms, liftover_type, parents_to_lift, args, protein_priority):
     if not os.path.exists(args.dir):
         os.mkdir(args.dir)
-    feature_db = create_feature_db_connections(args)
+    feature_db = create_feature_db_connections(args, protein_priority)
     feature_hierarchy, parent_order = seperate_parents_and_children(feature_db, parents_to_lift)
     get_gene_sequences(feature_hierarchy.parents, ref_chroms, args, liftover_type, parents_to_lift)
     return feature_hierarchy, feature_db, parent_order
 
 
-def create_feature_db_connections(args):
+def create_feature_db_connections(args, protein_priority):
     gffutils.constants.ignore_url_escape_characters = True
-    feature_db = build_database(args.db, args.g, not disable_transcripts, not disable_genes)
+    feature_db = build_database(args.db, args.g, not args.infer_transcripts, not args.infer_genes, protein_priority)
     return feature_db
 
 
@@ -34,30 +34,56 @@ def transform (f):
     return f 
 
 
-def build_database(db, gff_file, disable_transcripts, disable_genes):
+def build_database(db, gff_file, disable_transcripts, disable_genes, protein_priority):
     feature_db = None
     if db is None:
         try:
             print(f"[Info]: Extracting features from {gff_file}")
+            if protein_priority:
+                suffix = "_curated_db"
+                func = transform 
+            else:
+                suffix = "_db"
+                func = None
             feature_db = gffutils.create_db(
-                gff_file, gff_file + "_curated_db", 
+                gff_file, gff_file + suffix, 
                 merge_strategy="create_unique", force=True,
                 disable_infer_transcripts=disable_transcripts,
                 disable_infer_genes=disable_genes, 
-                verbose=True, transform=transform)
-            pc     = feature_db.count_features_of_type(featuretype='gene_pc')
-            pseudo = feature_db.count_features_of_type(featuretype='gene_pseudo')
-            print( '[Info]: Database build succeeded.\n'
-                  f'[Info]: Extracted {pc} protein-coding genes.\n'
-                  f'[Info]: Extracted {pseudo} pseudogenes.')
+                verbose=True, transform=func)
+            print('[Info]: Database build succeeded.')
+            if protein_priority:
+                pc     = feature_db.count_features_of_type(featuretype='gene_pc')
+                pseudo = feature_db.count_features_of_type(featuretype='gene_pseudo')
+                other  = feature_db.count_features_of_type(featuretype='gene')
+                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
+                      f'[Info]: Extracted {pseudo} pseudogenes.\n'
+                      f'[Info]: Extracted {other} other genes.')
+            else:
+                all_g  = feature_db.count_features_of_type(featuretype='gene')
+                print(f'[Info]: Extracted {all_g} genes.')
         except Exception as e:
             print(f'[Error]: Exception occurred while creating database: {e}')
             find_problem_line(gff_file)
     else:
-        if not db.endswith("_curated_db"):
+        if protein_priority and not db.endswith("_curated_db"):
             print('[Warning]: Improper suffix; may not be able to extract gene type information.')
         print(f"[Info]: Extracting features from {db}")
         feature_db = gffutils.FeatureDB(db)
+        if protein_priority:
+            pc     = feature_db.count_features_of_type(featuretype='gene_pc')
+            pseudo = feature_db.count_features_of_type(featuretype='gene_pseudo')
+            other  = feature_db.count_features_of_type(featuretype='gene')
+            if pc == 0 or pseudo == 0:
+                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes and {pseudo} pseudogenes.')
+            else:
+                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
+                      f'[Info]: Extracted {pseudo} pseudogenes.\n'
+                      f'[Info]: Extracted {other} other genes.')
+        else:
+            all_g  = feature_db.count_features_of_type(featuretype='gene')
+            print(f'[Info]: Extracted {all_g} genes.')
+
     return feature_db
 
 
@@ -194,7 +220,7 @@ def get_fasta_out(chrom_name, reference_fasta_name, liftover_type, inter_files, 
     else:
         fasta_out_name = chrom_name
     open_mode = 'a' if liftover_type == 'unplaced' else 'w'
-    return open(inter_files + "/" + fasta_out_name + "_genes.fa", open_mode)
+    return open(f'{inter_files}/{fasta_out_name}{suffix}.fa', open_mode)
 
 
 def write_gene_sequences_to_file(chrom_name, reference_fasta_name, reference_fasta_idx, parents, fasta_out, args):
