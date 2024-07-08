@@ -50,40 +50,39 @@ def compare_overlapping_feature(overlapping_feature, feature, remap_features, re
 
 
 def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features):
+    # remap whichever features that was previously added to the 'to_remap' list
     if already_in_list(feature, remap_features):
         return feature
     if already_in_list(overlap_feature, remap_features):
         return overlap_feature
-    scoring = {'gene_pc': 2, 'gene_pseudo': 1}
-    f_score = scoring[feature.featuretype] if feature.featuretype in scoring else 0
-    o_score = scoring[overlap_feature.featuretype] if overlap_feature.featuretype in scoring else 0
-    if f_score < o_score:
-        return feature
-    if f_score > o_score:
-        return overlap_feature
+    # remap the extra copy
+    # e.g. if 'feature' is an extra copy of some protein-coding feature, and 'overlap_feature' is a 1-to-1 pseudogene,
+    # the protein-coding gene would be re-mapped
     feature_is_copy = is_copy(feature)
     overlap_feature_is_copy = is_copy(overlap_feature)
     if feature_is_copy and overlap_feature_is_copy is False:
         return feature
     if overlap_feature_is_copy and feature_is_copy is False:
         return overlap_feature
-    if already_in_list(feature, remap_features):
-        return feature
-    if already_in_list(overlap_feature, remap_features):
+    # prioritize protein coding genes over other features
+    if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
         return overlap_feature
+    if overlap_feature.featuretype == 'gene_pc' and feature.featuretype != 'gene_pc':
+        return feature
+    # remap the feature with a lower sequence IDT
     if has_greater_seq_id(feature, overlap_feature):
         return overlap_feature
     if has_greater_seq_id(overlap_feature, feature):
         return feature
+    # remap the feature that is out of order
     farthest_neighbor_distance = find_out_of_order_feature(feature_is_copy, ref_parent_order,
                                                            target_parent_order, feature,
                                                            overlap_feature_is_copy, overlap_feature)
     if farthest_neighbor_distance is not None:
         return farthest_neighbor_distance
+    # remap the feature that is shorter
     if is_shorter(feature, overlap_feature):
         return feature
-    if is_shorter(overlap_feature, feature):
-        return overlap_feature
     return overlap_feature
 
 
