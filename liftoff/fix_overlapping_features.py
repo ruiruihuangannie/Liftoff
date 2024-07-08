@@ -50,11 +50,6 @@ def compare_overlapping_feature(overlapping_feature, feature, remap_features, re
 
 
 def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features):
-    # remap whichever features that was previously added to the 'to_remap' list
-    if already_in_list(feature, remap_features):
-        return feature
-    if already_in_list(overlap_feature, remap_features):
-        return overlap_feature
     # remap the extra copy
     # e.g. if 'feature' is an extra copy of some protein-coding feature, and 'overlap_feature' is a 1-to-1 pseudogene,
     # the protein-coding gene would be re-mapped
@@ -63,6 +58,11 @@ def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_par
     if feature_is_copy and overlap_feature_is_copy is False:
         return feature
     if overlap_feature_is_copy and feature_is_copy is False:
+        return overlap_feature
+    # remap whichever features that was previously added to the 'to_remap' list
+    if already_in_list(feature, remap_features):
+        return feature
+    if already_in_list(overlap_feature, remap_features):
         return overlap_feature
     # prioritize protein coding genes over other features
     if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
