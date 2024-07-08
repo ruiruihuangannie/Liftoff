@@ -27,10 +27,10 @@ def create_feature_db_connections(args, protein_priority):
 
 def transform (f):
     if f.featuretype == 'gene':
-        if f['gene_type'][0] == 'protein_coding':
+        if 'gene_type' in f.attributes and f['gene_type'][0] == 'protein_coding':
             f.featuretype = 'gene_pc'
-        elif f['gene_type'][0] in ['pseudogene', 'transcribed_pseudogene']:
-            f.featuretype = 'gene_pseudo'
+        elif 'gene_biotype' in f.attributes and f['gene_biotype'][0] == 'protein_coding':
+            f.featuretype = 'gene_pc'
     return f 
 
 
@@ -54,10 +54,8 @@ def build_database(db, gff_file, disable_transcripts, disable_genes, protein_pri
             print('[Info]: Database build succeeded.')
             if protein_priority:
                 pc     = feature_db.count_features_of_type(featuretype='gene_pc')
-                pseudo = feature_db.count_features_of_type(featuretype='gene_pseudo')
                 other  = feature_db.count_features_of_type(featuretype='gene')
                 print(f'[Info]: Extracted {pc} protein-coding genes.\n'
-                      f'[Info]: Extracted {pseudo} pseudogenes.\n'
                       f'[Info]: Extracted {other} other genes.')
             else:
                 all_g  = feature_db.count_features_of_type(featuretype='gene')
@@ -72,13 +70,11 @@ def build_database(db, gff_file, disable_transcripts, disable_genes, protein_pri
         feature_db = gffutils.FeatureDB(db)
         if protein_priority:
             pc     = feature_db.count_features_of_type(featuretype='gene_pc')
-            pseudo = feature_db.count_features_of_type(featuretype='gene_pseudo')
             other  = feature_db.count_features_of_type(featuretype='gene')
-            if pc == 0 or pseudo == 0:
-                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes and {pseudo} pseudogenes.')
+            if pc == 0:
+                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes.')
             else:
                 print(f'[Info]: Extracted {pc} protein-coding genes.\n'
-                      f'[Info]: Extracted {pseudo} pseudogenes.\n'
                       f'[Info]: Extracted {other} other genes.')
         else:
             all_g  = feature_db.count_features_of_type(featuretype='gene')
@@ -196,18 +192,26 @@ def get_gene_sequences(parent_dict, ref_chroms, args, liftover_type, parent_type
             fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene_pc')
             write_gene_sequences_to_file(chrom, args.reference, fai, pc_gene, fasta_hdl, args)
             fasta_hdl.close()
-        if 'gene_pseudo' in parent_types_to_lift:
-            pseudo_gene = [gene for gene in parent_feature if gene.featuretype == 'gene_pseudo']
-            fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene_pseudo')
-            write_gene_sequences_to_file(chrom, args.reference, fai, pseudo_gene, fasta_hdl, args)
-            fasta_hdl.close()
-        if list(np.setdiff1d(parent_types_to_lift, ['gene_pc', 'gene_pseudo'])) != []:
+        # if 'gene_pseudo' in parent_types_to_lift:
+        #     pseudo_gene = [gene for gene in parent_feature if gene.featuretype == 'gene_pseudo']
+        #     fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene_pseudo')
+        #     write_gene_sequences_to_file(chrom, args.reference, fai, pseudo_gene, fasta_hdl, args)
+        #     fasta_hdl.close()
+        # if list(np.setdiff1d(parent_types_to_lift, ['gene_pc', 'gene_pseudo'])) != []:
+        #     other_gene = [gene for gene in parent_feature \
+        #                   if gene.featuretype not in ['gene_pc', 'gene_pseudo'] \
+        #                   and gene.featuretype in parent_types_to_lift]
+        #     fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene')
+        #     write_gene_sequences_to_file(chrom, args.reference, fai, other_gene, fasta_hdl, args)
+        #     fasta_hdl.close()
+        if list(np.setdiff1d(parent_types_to_lift, ['gene_pc'])) != []:
             other_gene = [gene for gene in parent_feature \
-                          if gene.featuretype not in ['gene_pc', 'gene_pseudo'] \
+                          if gene.featuretype != 'gene_pc' \
                           and gene.featuretype in parent_types_to_lift]
             fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene')
             write_gene_sequences_to_file(chrom, args.reference, fai, other_gene, fasta_hdl, args)
             fasta_hdl.close()
+
 
 
 def get_fasta_out(chrom_name, reference_fasta_name, liftover_type, inter_files, suffix):
