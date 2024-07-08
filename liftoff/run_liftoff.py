@@ -30,7 +30,7 @@ def run_all_liftoff_steps(args):
         ref_chroms, target_chroms = [args.reference], [args.target]
     parent_features_to_lift = get_parent_features_to_lift(args.f)
     
-    all_features = parent_features_to_lift if args.no_prot_prior else parent_features_to_lift + ['gene_pc', 'gene_pseudo']
+    all_features = parent_features_to_lift if args.no_prot_prior else parent_features_to_lift + ['gene_pc']
     feature_hierarchy, feature_db, ref_parent_order = extract_features.extract_features_to_lift(ref_chroms, 'chrm_by_chrm', all_features, args, not args.no_prot_prior)
 
     if args.no_prot_prior:
@@ -47,38 +47,21 @@ def run_all_liftoff_steps(args):
             liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, all_features)
     else:
         # ---------------------------------------------
-        # liftover protein-coding genes
+        # protein-coding prioritization mode
         # ---------------------------------------------
         log('Aligning protein-coding features.')
         liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, ['gene_pc'])
         if len(unmapped_features) > 0 and target_chroms[0] != args.target:
-            log("Mapping unaligned features against all.")
+            log("Mapping unaligned protein-coding features against all.")
             unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, ['gene_pc'])
-        if args.copies:
-            log("Mapping extra copies against all.")
-            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, ['gene_pc'])
-        # ---------------------------------------------
-        # liftover pseudogenes
-        # ---------------------------------------------
-        log('Aligning pseudogene features.')
-        liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, ['gene_pseudo'])
-        if len(unmapped_features) > 0 and target_chroms[0] != args.target:
-            log("Mapping unaligned features against all.")
-            unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, ['gene_pseudo'])
-        if args.copies:
-            log("Mapping extra copies against all.")
-            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, ['gene_pseudo'])
-        # ---------------------------------------------
-        # align other types and unplaced genes
-        # ---------------------------------------------
         log('Aligning other feature types.')
         liftover_types.lift_original_annotation(ref_chroms, target_chroms, lifted_feature_list, args, unmapped_features, feature_db, feature_hierarchy, ref_parent_order, parent_features_to_lift)
         if len(unmapped_features) > 0 and target_chroms[0] != args.target:
-            log("Mapping unaligned features against all.")
+            log("Mapping unaligned other features against all.")
             unmapped_features = liftover_types.map_unmapped_genes_agaisnt_all(unmapped_features, [args.reference], [args.target], lifted_feature_list, feature_db, feature_hierarchy, ref_parent_order, args, parent_features_to_lift)
         if args.copies:
             log("Mapping extra copies against all.")
-            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, parent_features_to_lift)
+            liftover_types.map_extra_copies([args.reference], [args.target], lifted_feature_list, feature_hierarchy, feature_db, ref_parent_order, args, parent_features_to_lift + ['gene_pc'])
 
     if args.unplaced and args.chroms:
         log("Mapping unplaced genes")
