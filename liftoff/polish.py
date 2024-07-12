@@ -1,11 +1,64 @@
 from collections import defaultdict
 import warnings
 from Bio.Seq import Seq
-from liftoff import liftoff_utils
+from liftoff import align_features, lift_features
+from liftoff.liftoff_utils import merge_children_intervals
 import parasail
 from itertools import groupby
+from pyfaidx import Fasta
 import numpy as np
 import re
+
+
+def check_cds(feature_list, feature_hierarchy, args):
+    ref_faidx, target_faidx = Fasta(args.reference), Fasta(args.target)
+    for target_feature in feature_list:
+        target_sub_features = get_sub_features(feature_list, target_feature)
+        ref_sub_features = get_sub_features(feature_hierarchy.children, target_sub_features[0].id)
+        find_and_check_cds(target_sub_features, ref_sub_features, ref_faidx, target_faidx, feature_list[target_feature])
+
+
+def find_and_polish_broken_cds(obj, args, ltype):
+    args.subcommand = "polish"
+    polish_lifted_features = dict()
+    ref_fa, target_fa = Fasta(args.reference), Fasta(args.target)
+    for target_feature in obj.lifted_features:
+        tgt_gid = target_feature.split('_')[0]
+        aligned_segments_new = {}
+        if polish_annotations(obj.lifted_features, ref_fa, target_fa, obj.args, obj.feature_hierarchy, target_feature):
+            aligned_segments = align_features.align_features_to_target(
+                args,
+                obj.feature_hierarchy, 
+                obj.unmapped_features,
+                obj.ref_chroms, 
+                obj.tgt_chroms, 
+                ltype)
+            aligned_segments_new[target_feature] = list(aligned_segments.values())[0]
+            for seg in aligned_segments_new[target_feature]:
+                seg.query_name = target_feature
+            args.d = 100000000
+            lift_features.lift_all_features(
+                obj, 
+                aligned_segments_new, 
+                None, 
+                obj.unmapped_features,
+                ltype
+            )
+    check_cds(polish_lifted_features, obj.feature_hierarchy, args)
+    for feature in polish_lifted_features:
+        original_feature = lifted_feature_list[feature][0]
+        polished_feature = polish_lifted_features[feature][0]
+        replace = False
+        if 'valid_ORFs' not in polished_feature.attributes or int(polished_feature.attributes['valid_ORFs'][0]) > \
+                int(original_feature.attributes['valid_ORFs'][0]):
+            replace = True
+        elif polished_feature.attributes['valid_ORFs'][0] == original_feature.attributes['valid_ORFs'][0]:
+            if polished_feature.attributes['sequence_ID'][0] > original_feature.attributes['sequence_ID'][0]:
+                replace = True
+            elif polished_feature.attributes['coverage'][0] > original_feature.attributes['coverage'][0]:
+                replace = True
+        if replace:
+            lifted_feature_list[feature] = polish_lifted_features[feature]
 
 
 def polish_annotations(feature_list, ref_faidx, target_faidx, args, feature_heirarchy, target_feature):
@@ -163,9 +216,9 @@ def polish_single_annotation(ref_gene, target_gene, ref_children, target_childre
     if len(ref_exons) == 0:
         ref_exons = ref_CDS
         target_exons = [feature for feature in target_children if feature.featuretype == "CDS"]
-    ref_CDS_intervals = liftoff_utils.merge_children_intervals(ref_CDS)
+    ref_CDS_intervals = merge_children_intervals(ref_CDS)
     splice_sites = add_splice_sites(ref_exons, ref_gene)
-    merged_ref_intervals = liftoff_utils.merge_children_intervals(ref_exons)
+    merged_ref_intervals = merge_children_intervals(ref_exons)
     exon_group_dict = find_overlapping_exon_groups(merged_ref_intervals, ref_exons)
     matrix = make_scoring_matrix(3)
     for i in range (len(merged_ref_intervals)):

@@ -1,7 +1,26 @@
 import numpy as np
 import time, subprocess
+import enum
 
 
+class LiftoverType(enum.Enum):
+    ONE2ONE = enum.auto()
+    UNMAPPED = enum.auto()
+    COPIES = enum.auto()
+    UNPLACED = enum.auto()
+
+
+def parse_chrm_files(chroms_file):
+    with open(chroms_file, 'r') as chroms:
+        ref_chroms, target_chroms = [], []
+        for line in chroms.readlines():
+            kv_pair = line.rstrip().split(",")
+            ref_chroms.append(kv_pair[0])
+            assert(len(kv_pair) == 2)
+            target_chroms.append(kv_pair[1])
+    return ref_chroms, target_chroms
+
+    
 def count_overlap(start1, end1, start2, end2):
     overlap = min(end1, end2) - max(start1, start2) +1
     return overlap
@@ -37,14 +56,6 @@ def get_parent_list(feature_list):
         if len(feature_set) > 0:
             parent_list.append(feature_set[0])
     return parent_list
-
-
-def clear_scores(feature_list, parent_dict):
-    for parent in feature_list:
-        for feature in feature_list[parent]:
-            if feature.id in parent_dict:
-                feature.score = -1
-    return feature_list
 
 
 def find_parent_order(parents):

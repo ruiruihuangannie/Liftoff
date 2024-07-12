@@ -9,16 +9,16 @@ def write_header(f, out_type):
     f.write("# " + " ".join(sys.argv) + "\n")
 
 
-def write_new_gff(lifted_features, args, feature_db):
-    f = sys.stdout if args.o == 'stdout' else open(args.o, 'w')
-    out_type = feature_db.dialect['fmt']
+def write_new_gff(obj):
+    f = sys.stdout if obj.args.o == 'stdout' else open(obj.args.o, 'w')
+    out_type = obj.feature_db.dialect['fmt']
     write_header(f, out_type)
-    parents = liftoff_utils.get_parent_list(lifted_features)
+    parents = liftoff_utils.get_parent_list(obj.lifted_features)
     parents.sort(key=lambda x: x.id)
-    final_parent_list = finalize_parent_features(parents, args)
+    final_parent_list = finalize_parent_features(parents, obj.args)
     final_parent_list.sort(key=lambda x: (x.seqid, x.start))
     for final_parent in final_parent_list:
-        child_features = lifted_features[final_parent.attributes["copy_id"][0]]
+        child_features = obj.lifted_features[final_parent.attributes["copy_id"][0]]
         parent_child_dict = build_parent_dict(child_features, final_parent)
         write_feature([final_parent], f, child_features, parent_child_dict, out_type)
 

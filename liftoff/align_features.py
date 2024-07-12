@@ -6,13 +6,15 @@ from pyfaidx import Fasta, Faidx
 import subprocess
 import pysam
 from liftoff import aligned_seg, liftoff_utils
+from liftoff.liftoff_utils import LiftoverType
 from os import path
 
 
 def cigar_dict():
     return {"insertion": 1, "deletion": 2, "hard_clip": 5, "match": 7, "mismatch": 8}
 
-def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy, liftover_type, unmapped_features, feature_type):
+
+def align_features_to_target(args, feature_hierarchy, unmapped_features, ref_chroms, target_chroms, liftover_type):
     if args.subcommand == "polish":
         sam_files = [args.dir + "/polish.sam"]
     else:
@@ -21,7 +23,7 @@ def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy,
         threads_per_alignment = max(1, math.floor(int(args.p) / len(ref_chroms)))
         sam_files = []
         pool = Pool(int(args.p))
-        func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size, liftover_type, feature_type)
+        func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size, liftover_type)
         for result in pool.imap_unordered(func, np.arange(0, len(target_chroms))):
             sam_files.append(result)
         pool.close()
@@ -46,9 +48,9 @@ def get_genome_size(target_fasta_dict):
     return genome_size
 
 
-def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, liftover_type, feature_type, index):
-    features_file, features_name = get_features_file(ref_chroms, args, liftover_type, feature_type, index)
-    target_file,   output_file   = get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args, feature_type)
+def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, liftover_type, index):
+    features_file, features_name = get_features_file(ref_chroms, args, liftover_type, index)
+    target_file,   output_file   = get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args)
     threads_arg   = str(threads)
     minimap2_path = get_minimap_path(args)
     target_prefix = get_target_prefix_name(target_chroms, index, args, liftover_type)
@@ -66,28 +68,26 @@ def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, l
     return output_file
 
 
-def get_features_file(ref_chroms, args, liftover_type, feature_type, index):
-    if ref_chroms[index] == args.reference and (liftover_type == "chrm_by_chrm" or liftover_type == "copies"):
+def get_features_file(ref_chroms, args, liftover_type, index):
+    if ref_chroms[index] == args.reference and liftover_type in [LiftoverType.ONE2ONE, LiftoverType.COPIES]:
         features_name = 'reference_all'
-    elif liftover_type == "unmapped":
+    elif liftover_type == LiftoverType.UNMAPPED:
         features_name = "unmapped_to_expected_chrom"
-    elif liftover_type == "unplaced":
+    elif liftover_type == LiftoverType.UNPLACED:
         features_name = "unplaced"
     else:
         features_name = ref_chroms[index]
-    suffix = feature_type[0] if feature_type in [['gene_pc'], ['gene_pseudo']] else 'gene'
-    return f'{args.dir}/{features_name}_{suffix}.fa', features_name
+    return f'{args.dir}/{features_name}_gene.fa', features_name
 
 
-def get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args, feature_type):
-    if liftover_type != "chrm_by_chrm" or target_chroms[0] == args.target:
+def get_target_file_and_output_file(liftover_type, target_chroms, index, features_name, args):
+    if liftover_type != LiftoverType.ONE2ONE or target_chroms[0] == args.target:
         target_file = args.target
         out_file_target = "target_all"
     else:
         target_file = args.dir + "/" + target_chroms[index] + ".fa"
         out_file_target = target_chroms[index]
-    suffix = feature_type[0] if feature_type in [['gene_pc'], ['gene_pseudo']] else 'gene'
-    output_file = args.dir + "/" + features_name + "_to_" + out_file_target + "_" + suffix + ".sam"
+    output_file = args.dir + "/" + features_name + "_to_" + out_file_target + "_gene.sam"
     return target_file, output_file
 
 
@@ -100,7 +100,7 @@ def get_minimap_path(args):
 
 
 def get_target_prefix_name(target_chroms, index, args, liftover_type):
-    if liftover_type != "chrm_by_chrm" or target_chroms[0] == args.target:
+    if liftover_type != LiftoverType.ONE2ONE or target_chroms[0] == args.target:
         prefix = "target_all"
     else:
         prefix = target_chroms[index]
@@ -156,7 +156,7 @@ def add_alignment(ref_seq, align_count_dict, search_type, name_dict, aln_id, fea
 
 
 def edit_name(search_type, ref_seq, name_dict):
-    if search_type != "copies":
+    if search_type != LiftoverType.COPIES:
         return ref_seq.query_name + "_0"
     else:
         if ref_seq.query_name not in name_dict:
@@ -172,7 +172,7 @@ def get_aligned_blocks(alignment, aln_id, feature_hierarchy, search_type):
     query_start, query_end = get_query_start_and_end(alignment, cigar)
     children = feature_hierarchy.children[gene_id]
     end_to_end = is_end_to_end_alignment(parent, query_start, query_end)
-    if search_type == "copies" and not end_to_end:
+    if search_type == LiftoverType.COPIES and not end_to_end:
         return []
     reference_block_start, reference_block_pos = alignment.reference_start, alignment.reference_start
     query_block_start, query_block_pos = query_start, query_start

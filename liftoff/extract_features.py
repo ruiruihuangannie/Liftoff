@@ -1,28 +1,20 @@
 import gffutils
 from pyfaidx import Fasta
 from liftoff import liftoff_utils, feature_hierarchy, new_feature
+from liftoff.liftoff_utils import LiftoverType, find_parent_order
 import os
 import sys
 import numpy as np
 import ujson as json
 
 
-
-
-
-def extract_features_to_lift(ref_chroms, liftover_type, parents_to_lift, args, protein_priority):
+def create_hierarchical_database(args, parents_to_lift):
     if not os.path.exists(args.dir):
         os.mkdir(args.dir)
-    feature_db = create_feature_db_connections(args, protein_priority)
-    feature_hierarchy, parent_order = seperate_parents_and_children(feature_db, parents_to_lift)
-    get_gene_sequences(feature_hierarchy.parents, ref_chroms, args, liftover_type, parents_to_lift)
-    return feature_hierarchy, feature_db, parent_order
-
-
-def create_feature_db_connections(args, protein_priority):
     gffutils.constants.ignore_url_escape_characters = True
-    feature_db = build_database(args.db, args.g, not args.infer_transcripts, not args.infer_genes, protein_priority)
-    return feature_db
+    feature_db = build_database(args.db, args.g, not args.infer_transcripts, not args.infer_genes, not args.no_prot_prior)
+    feature_hierarchy, parent_order = seperate_parents_and_children(feature_db, parents_to_lift)
+    return feature_hierarchy, feature_db, parent_order
 
 
 def transform (f):
@@ -36,7 +28,23 @@ def transform (f):
 
 def build_database(db, gff_file, disable_transcripts, disable_genes, protein_priority):
     feature_db = None
-    if db is None:
+    if db:
+        if protein_priority and not db.endswith("_curated_db"):
+            print('[Warning]: Improper suffix; may not be able to extract gene type information.')
+        print(f"[Info]: Extracting features from {db}")
+        feature_db = gffutils.FeatureDB(db)
+        if protein_priority:
+            pc     = feature_db.count_features_of_type(featuretype='gene_pc')
+            other  = feature_db.count_features_of_type(featuretype='gene')
+            if pc == 0:
+                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes.')
+            else:
+                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
+                      f'[Info]: Extracted {other} other genes.')
+        else:
+            all_g  = feature_db.count_features_of_type(featuretype='gene')
+            print(f'[Info]: Extracted {all_g} genes.')
+    else:
         try:
             print(f"[Info]: Extracting features from {gff_file}")
             if protein_priority:
@@ -63,23 +71,6 @@ def build_database(db, gff_file, disable_transcripts, disable_genes, protein_pri
         except Exception as e:
             print(f'[Error]: Exception occurred while creating database: {e}')
             find_problem_line(gff_file)
-    else:
-        if protein_priority and not db.endswith("_curated_db"):
-            print('[Warning]: Improper suffix; may not be able to extract gene type information.')
-        print(f"[Info]: Extracting features from {db}")
-        feature_db = gffutils.FeatureDB(db)
-        if protein_priority:
-            pc     = feature_db.count_features_of_type(featuretype='gene_pc')
-            other  = feature_db.count_features_of_type(featuretype='gene')
-            if pc == 0:
-                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes.')
-            else:
-                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
-                      f'[Info]: Extracted {other} other genes.')
-        else:
-            all_g  = feature_db.count_features_of_type(featuretype='gene')
-            print(f'[Info]: Extracted {all_g} genes.')
-
     return feature_db
 
 
@@ -113,7 +104,7 @@ def seperate_parents_and_children(feature_db, parent_types_to_lift):
     add_parents(parent_dict, child_dict, highest_parents, parent_types_to_lift, feature_db)
     add_children(parent_dict, child_dict, lowest_children, feature_db)
     add_intermediates(intermediates, intermediate_dict, feature_db)
-    parent_order          = liftoff_utils.find_parent_order([parent for parent in list(parent_dict.values()) if parent])
+    parent_order          = find_parent_order([parent for parent in list(parent_dict.values()) if parent])
     ref_feature_hierarchy = feature_hierarchy.feature_hierarchy(parent_dict, intermediate_dict, child_dict)
     return ref_feature_hierarchy, parent_order
 
@@ -178,53 +169,31 @@ def add_intermediates(intermediate_ids, intermediate_dict, feature_db):
             add_parent_tag(intermediate_feature, feature_db)
 
 
-def get_gene_sequences(parent_dict, ref_chroms, args, liftover_type, parent_types_to_lift):
+def get_gene_sequences(parent_dict, ref_chroms, args, liftover_type):
     fai = Fasta(args.reference)
-    if liftover_type == "unplaced":
+    if liftover_type == LiftoverType.UNPLACED:
         open(args.dir + "/unplaced_genes.fa", 'w')
     for chrom in ref_chroms:
         parent_feature = sorted(list(parent_dict.values()), key=lambda x: x.seqid)
         if len(parent_feature) == 0:
             sys.exit("[Fatal]: GFF does not contain any gene features. Use -f to provide a list of other feature types to lift over.")
-        
-        if 'gene_pc' in parent_types_to_lift:
-            pc_gene = [gene for gene in parent_feature if gene.featuretype == 'gene_pc']
-            fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene_pc')
-            write_gene_sequences_to_file(chrom, args.reference, fai, pc_gene, fasta_hdl, args)
-            fasta_hdl.close()
-        # if 'gene_pseudo' in parent_types_to_lift:
-        #     pseudo_gene = [gene for gene in parent_feature if gene.featuretype == 'gene_pseudo']
-        #     fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene_pseudo')
-        #     write_gene_sequences_to_file(chrom, args.reference, fai, pseudo_gene, fasta_hdl, args)
-        #     fasta_hdl.close()
-        # if list(np.setdiff1d(parent_types_to_lift, ['gene_pc', 'gene_pseudo'])) != []:
-        #     other_gene = [gene for gene in parent_feature \
-        #                   if gene.featuretype not in ['gene_pc', 'gene_pseudo'] \
-        #                   and gene.featuretype in parent_types_to_lift]
-        #     fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene')
-        #     write_gene_sequences_to_file(chrom, args.reference, fai, other_gene, fasta_hdl, args)
-        #     fasta_hdl.close()
-        if list(np.setdiff1d(parent_types_to_lift, ['gene_pc'])) != []:
-            other_gene = [gene for gene in parent_feature \
-                          if gene.featuretype != 'gene_pc' \
-                          and gene.featuretype in parent_types_to_lift]
-            fasta_hdl = get_fasta_out(chrom, args.reference, liftover_type, args.dir, suffix='_gene')
-            write_gene_sequences_to_file(chrom, args.reference, fai, other_gene, fasta_hdl, args)
-            fasta_hdl.close()
+        fasta_hdl = get_fasta_hdl(chrom, args.reference, liftover_type, args.dir)
+        write_gene_sequences_to_file(chrom, args.reference, fai, parent_feature, fasta_hdl, args)
+        fasta_hdl.close()
 
 
 
-def get_fasta_out(chrom_name, reference_fasta_name, liftover_type, inter_files, suffix):
-    if chrom_name == reference_fasta_name and (liftover_type == "chrm_by_chrm" or liftover_type == "copies"):
+def get_fasta_hdl(chrom_name, reference_fasta_name, ltype, inter_files):
+    if chrom_name == reference_fasta_name and ltype in [LiftoverType.ONE2ONE, LiftoverType.COPIES]:
         fasta_out_name = "reference_all"
-    elif liftover_type == "unmapped":
+    elif ltype == LiftoverType.UNMAPPED:
         fasta_out_name = "unmapped_to_expected_chrom"
-    elif liftover_type == "unplaced":
+    elif ltype == LiftoverType.UNPLACED:
         fasta_out_name = "unplaced"
     else:
         fasta_out_name = chrom_name
-    open_mode = 'a' if liftover_type == 'unplaced' else 'w'
-    return open(f'{inter_files}/{fasta_out_name}{suffix}.fa', open_mode)
+    open_mode = 'a' if ltype == LiftoverType.UNPLACED else 'w'
+    return open(f'{inter_files}/{fasta_out_name}_gene.fa', open_mode)
 
 
 def write_gene_sequences_to_file(chrom_name, reference_fasta_name, reference_fasta_idx, parents, fasta_out, args):

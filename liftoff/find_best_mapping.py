@@ -307,8 +307,7 @@ def convert_all_children_coords(shortest_path_nodes, children, parent):
         else:
             deletions += (child.end - child.start + 1)
     alignment_length = total_bases + insertions
-    return mapped_children, (total_bases - deletions) / total_bases, (alignment_length - insertions - mismatches -
-                                                                      deletions) / alignment_length
+    return  mapped_children, (total_bases - deletions) / total_bases, (alignment_length - insertions - mismatches - deletions) / alignment_length
 
 
 def find_nearest_aligned_start_and_end(child_start, child_end, shortest_path_nodes, parent):

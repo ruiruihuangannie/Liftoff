@@ -1,21 +1,29 @@
 from liftoff import lift_features, liftoff_utils
+from liftoff.liftoff_utils import LiftoverType
 import numpy as np
 from interlap import InterLap
 
 
-def fix_incorrectly_overlapping_features(all_lifted_features, features_to_check, all_aligned_segs,
-                                         unmapped_features, threshold, feature_hierarchy, feature_db,
-                                         ref_parent_order, seq_id_threshold, distance_factor,
-                                         max_overlap, feature_type):
-    features_to_remap, feature_locations = check_homologues(all_lifted_features, features_to_check,
-                                                            feature_hierarchy.parents,
-                                                            ref_parent_order, max_overlap)
-    resolve_overlapping_homologues(all_aligned_segs, all_lifted_features, features_to_remap, unmapped_features,
-                                   threshold, feature_hierarchy, feature_db, ref_parent_order, seq_id_threshold,
-                                   feature_locations, distance_factor, max_overlap, feature_type)
+def fix_incorrectly_overlapping_features(obj, all_lifted_features, features_to_check, all_aligned_segs, unmapped_features, liftover_type):
+    features_to_remap, feature_locations = check_homologues(
+        obj,
+        all_lifted_features, 
+        features_to_check,
+        liftover_type
+    )
+    resolve_overlapping_homologues(
+        obj,
+        all_aligned_segs,
+        all_lifted_features,
+        features_to_remap,
+        feature_locations,
+        unmapped_features,
+        liftover_type
+    )
 
 
-def check_homologues(all_lifted_features, lifted_features_to_check, parent_dict, ref_parent_order, max_overlap):
+def check_homologues(obj, all_lifted_features, lifted_features_to_check, liftover_type):
+    parent_dict = obj.feature_hierarchy.parents
     all_feature_list = liftoff_utils.get_parent_list(all_lifted_features)
     features_to_check_list = liftoff_utils.get_parent_list(lifted_features_to_check)
     target_parent_order = liftoff_utils.find_parent_order(all_feature_list)
@@ -24,12 +32,20 @@ def check_homologues(all_lifted_features, lifted_features_to_check, parent_dict,
     for feature in features_to_check_list:
         overlaps = liftoff_utils.find_overlaps(feature.start - 1, feature.end - 1, feature.seqid, feature.strand,
                                                feature.attributes["copy_num_ID"][0], feature_locations, parent_dict,
-                                               all_lifted_features, max_overlap)
+                                               all_lifted_features, obj.args.overlap)
         for overlap in overlaps:
             if overlap[2][0] != feature.attributes["copy_num_ID"][0]:
                 feature_to_compare = overlap[2][1]
-                compare_overlapping_feature(feature_to_compare, feature, remap_features, ref_parent_order,
-                                            target_parent_order)
+                compare_overlapping_feature(
+                    feature_to_compare, 
+                    feature, 
+                    remap_features, 
+                    obj.ref_parent_order,
+                    target_parent_order, 
+                    not obj.args.no_prot_prior,
+                    obj.settled_features,
+                    liftover_type
+                )
     return remap_features, feature_locations
 
 
@@ -42,14 +58,21 @@ def build_interval_list(features):
     return inter
 
 
-def compare_overlapping_feature(overlapping_feature, feature, remap_features, ref_parent_order,
-                                target_parent_order):
-    feature_to_remap = find_feature_to_remap(feature, overlapping_feature,
-                                             ref_parent_order, target_parent_order, remap_features)
+def compare_overlapping_feature(overlapping_feature, feature, remap_features, ref_parent_order, target_parent_order, protein_priority, settled_features, liftover_type):
+    feature_to_remap = find_feature_to_remap(
+        feature, overlapping_feature, 
+        ref_parent_order, target_parent_order, 
+        remap_features, protein_priority, settled_features, liftover_type
+    )
     remap_features.add(feature_to_remap.attributes["copy_num_ID"][0])
 
 
-def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features):
+def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features, protein_priority, settled_features, liftover_type):
+    # do not remap what has been mapped in previous rounds
+    if feature.id in settled_features and overlap_feature.id not in settled_features:
+        return overlap_feature
+    if overlap_feature.id in settled_features and feature.id not in settled_features:
+        return feature
     # remap the extra copy
     # e.g. if 'feature' is an extra copy of some protein-coding feature, and 'overlap_feature' is a 1-to-1 pseudogene,
     # the protein-coding gene would be re-mapped
@@ -65,10 +88,12 @@ def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_par
     if already_in_list(overlap_feature, remap_features):
         return overlap_feature
     # prioritize protein coding genes over other features
-    if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
-        return overlap_feature
-    if overlap_feature.featuretype == 'gene_pc' and feature.featuretype != 'gene_pc':
-        return feature
+    if protein_priority:
+        if liftover_type in [LiftoverType.ONE2ONE, LiftoverType.COPIES]:
+            if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
+                return overlap_feature
+            if overlap_feature.featuretype == 'gene_pc' and feature.featuretype != 'gene_pc':
+                return feature
     # remap the feature with a lower sequence IDT
     if has_greater_seq_id(feature, overlap_feature):
         return overlap_feature
@@ -95,9 +120,7 @@ def already_in_list(feature, remap_features):
 
 
 def has_greater_seq_id(feature1, feature2):
-    if feature1.score < feature2.score:
-        return True
-    return False
+    return feature1.score < feature2.score
 
 
 def find_out_of_order_feature(feature_is_copy, ref_parent_order, target_parent_order, feature,
@@ -145,21 +168,41 @@ def is_shorter(feature1, feature2):
     return (feature1.end - feature1.start) < (feature2.end - feature2.start)
 
 
-def resolve_overlapping_homologues(all_aligned_segs, lifted_feature_list, features_to_remap, unmapped_features,
-                                   threshold, feature_hierarchy, feature_db, ref_parent_order, seq_id_threshold,
-                                   feature_locations, distance_factor, max_overlap, feature_type):
+def resolve_overlapping_homologues(obj, all_aligned_segs, lifted_feature_list, features_to_remap,
+                                   feature_locations, unmapped_features, liftover_type):
     iter = 0
     max_iter = 10 * len(features_to_remap)
     while len(features_to_remap) > 0 and iter <= max_iter:
         iter += 1
-        aligned_segs_for_remap = remove_features_and_get_alignments(features_to_remap, lifted_feature_list, all_aligned_segs)
-        lift_features.lift_all_features(aligned_segs_for_remap, threshold, feature_db, feature_hierarchy,unmapped_features,
-                                        lifted_feature_list, seq_id_threshold, feature_locations, distance_factor,
-                                        ref_parent_order, feature_type)
-        features_to_check = get_successfully_remapped_features(lifted_feature_list, features_to_remap)
-        features_to_remap, feature_locations = check_homologues(lifted_feature_list, features_to_check, feature_hierarchy.parents,
-                                                                ref_parent_order, max_overlap)
-    remove_unresolved_features(features_to_remap, feature_hierarchy.parents, lifted_feature_list, unmapped_features)
+        aligned_segs_for_remap = remove_features_and_get_alignments(
+            features_to_remap, 
+            lifted_feature_list, 
+            all_aligned_segs
+        )
+        lift_features.lift_all_features(
+            obj, 
+            aligned_segs_for_remap, 
+            feature_locations, 
+            unmapped_features,
+            liftover_type
+        )
+        features_to_check = get_successfully_remapped_features(
+            lifted_feature_list, 
+            features_to_remap
+        )
+        features_to_remap, feature_locations = check_homologues(
+            obj,
+            lifted_feature_list, 
+            features_to_check, 
+            liftover_type
+        )
+    remove_unresolved_features(
+        features_to_remap, 
+        obj.feature_hierarchy.parents, 
+        lifted_feature_list, 
+        unmapped_features,
+        liftover_type
+    )
     return lifted_feature_list
 
 
@@ -180,7 +223,7 @@ def get_successfully_remapped_features(lifted_feature_list, features_to_remap):
     return successfully_remapped_features
 
 
-def remove_unresolved_features(features_to_remap, parent_dict, lifted_feature_list, unmapped_features):
+def remove_unresolved_features(features_to_remap, parent_dict, lifted_feature_list, unmapped_features, liftover_type):
     for feature in features_to_remap:
         unmapped_features.append(parent_dict[liftoff_utils.convert_id_to_original(feature)])
         del lifted_feature_list[feature]

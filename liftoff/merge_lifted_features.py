@@ -1,8 +1,8 @@
-from liftoff import liftoff_utils, new_feature
+from liftoff import new_feature
+from liftoff.liftoff_utils import LiftoverType
 
 
-def merge_lifted_features(mapped_children, parent, unmapped_features, aln_cov_threshold, copy_id, feature_order,
-                          feature_hierarchy, aln_cov, seq_id, seq_id_threshold):
+def merge_lifted_features(obj, mapped_children, parent, copy_id, feature_order, aln_cov, seq_id, unmapped_features, liftover_type):
     feature_list, final_features = {}, []
     non_parents = []
     top_target_feature = None
@@ -17,10 +17,19 @@ def merge_lifted_features(mapped_children, parent, unmapped_features, aln_cov_th
         else:
             top_target_feature = child_feature
     while (len(non_parents) != 0):
-        non_parents, top_target_feature = create_parents(non_parents, parent, feature_hierarchy, feature_list)
-    final_features = process_final_features_list(feature_list, top_target_feature, seq_id, seq_id_threshold, aln_cov,
-                                                 aln_cov_threshold,
-                                                 unmapped_features, parent, feature_order, copy_id)
+        non_parents, top_target_feature = create_parents(non_parents, parent, obj.feature_hierarchy, feature_list)
+    
+    final_features = process_final_features_list(
+        obj.args,
+        feature_list,
+        top_target_feature,
+        unmapped_features,
+        seq_id, aln_cov, 
+        parent,
+        feature_order,
+        copy_id,
+        liftover_type
+    )
     return final_features
 
 
@@ -62,13 +71,25 @@ def get_ref_parent(parent, feature_hierarchy):
     return ref_parent
 
 
-def process_final_features_list(feature_list, top_target_feature, seq_id, seq_id_threshold, aln_cov, aln_cov_threshold,
-                                unmapped_features, parent, feature_order, copy_id):
+def process_final_features_list(args, feature_list, top_target_feature, unmapped_features, seq_id, aln_cov,
+                                parent, feature_order, copy_id, liftover_type):
     final_features = [feature for feature in feature_list.values() if feature != top_target_feature]
     final_features.sort(key=lambda x: (x.seqid, x.start))
     final_features.sort(key=lambda x: feature_order[x.featuretype])
     final_features.insert(0, top_target_feature)
-    if aln_cov < aln_cov_threshold or seq_id < seq_id_threshold:
+
+    if args.chroms or args.exclude_partial:
+        a_threshold = args.a
+        if not args.no_prot_prior and liftover_type == LiftoverType.ONE2ONE and top_target_feature.featuretype == 'gene_pc':
+            s_threshold = args.prot_S
+        else:
+            s_threshold = args.s
+    elif liftover_type == LiftoverType.COPIES:
+        a_threshold, s_threshold = 0, args.sc
+    else:
+        a_threshold, s_threshold = 0.05, 0.05
+
+    if aln_cov < a_threshold or seq_id < s_threshold:
         final_features = []
         unmapped_features.append(parent)
     else:
