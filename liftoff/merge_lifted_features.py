@@ -80,7 +80,7 @@ def process_final_features_list(args, feature_list, top_target_feature, unmapped
 
     if args.chroms or args.exclude_partial:
         a_threshold = args.a
-        if not args.no_prot_prior and liftover_type == LiftoverType.ONE2ONE and top_target_feature.featuretype == 'gene_pc':
+        if not args.no_prot_prior and liftover_type in [LiftoverType.ONE2ONE, LiftoverType.UNMAPPED] and top_target_feature.featuretype == 'gene_pc':
             s_threshold = args.prot_S
         else:
             s_threshold = args.s

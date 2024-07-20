@@ -66,6 +66,10 @@ def parse_args(arglist):
         '--no_prot_prior', default=False, action='store_true', 
         help='disable heuristics that prioritizes protein-coding genes during lift-over. [default=False]'
     )
+    pcgrp.add_argument(
+        '--prot_S', default=0.95, metavar='S', type=float,
+        help='protein S-Score. When protein prioritization is enabled, the -s score for lifting over proteins. [default=0.95]'
+    )
 
     regiongrp = parser.add_argument_group('Special genomic regions')
     regiongrp.add_argument(
