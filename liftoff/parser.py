@@ -66,10 +66,6 @@ def parse_args(arglist):
         '--no_prot_prior', default=False, action='store_true', 
         help='disable heuristics that prioritizes protein-coding genes during lift-over. [default=False]'
     )
-    pcgrp.add_argument(
-        '--prot_S', default=0.9, type=float, metavar='FLOAT',
-        help='protein S-Score. When protein-prioritize is True, the -s score for lifting over proteins. [default=0.9]',
-    )
 
     regiongrp = parser.add_argument_group('Special genomic regions')
     regiongrp.add_argument(
@@ -85,13 +81,6 @@ def parse_args(arglist):
     regiongrp.add_argument(
         '--annot_2', metavar='FILE',
         help='secondary annotation file. Required when either (or both) of previous two options is enabled.'
-    )
-    regiongrp.add_argument(
-        '--short_gene', action='store_true',
-        help='handles short regions like VDJ regions that are poorly managed by '
-             'default minimap2 parameters. Uses minimap2 -sr for genes between '
-             '30 and 100 base pairs, and Bowtie2 for genes shorter than 30 bps. '
-             '[default=False]'
     )
 
     parser.add_argument('-V', '--version', help='show program version', action='version', version='v1.6.3')
@@ -155,8 +144,7 @@ def parse_args(arglist):
     if float(args.s) > float(args.sc):
         parser.error("-sc must be greater than or equal to -s")
     if args.chroms is None and args.unplaced is not None:
-        parser.error("-unplaced must be used with -chroms")\
-
+        parser.error("-unplaced must be used with -chroms")
     if args.chrY_separate and not args.annot_2:
         parser.error("--chrY-separate must be used with --annot-2")
     if args.rDNA_separate and not args.annot_2:

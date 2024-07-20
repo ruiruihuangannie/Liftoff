@@ -68,6 +68,12 @@ def compare_overlapping_feature(overlapping_feature, feature, remap_features, re
 
 
 def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_parent_order, remap_features, protein_priority, settled_features, liftover_type):
+    # prioritize protein coding genes over other features
+    if protein_priority:
+        if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
+            return overlap_feature
+        if overlap_feature.featuretype == 'gene_pc' and feature.featuretype != 'gene_pc':
+            return feature
     # do not remap what has been mapped in previous rounds
     if feature.id in settled_features and overlap_feature.id not in settled_features:
         return overlap_feature
@@ -87,13 +93,6 @@ def find_feature_to_remap(feature, overlap_feature, ref_parent_order, target_par
         return feature
     if already_in_list(overlap_feature, remap_features):
         return overlap_feature
-    # prioritize protein coding genes over other features
-    if protein_priority:
-        if liftover_type in [LiftoverType.ONE2ONE, LiftoverType.COPIES]:
-            if feature.featuretype == 'gene_pc' and overlap_feature.featuretype != 'gene_pc':
-                return overlap_feature
-            if overlap_feature.featuretype == 'gene_pc' and feature.featuretype != 'gene_pc':
-                return feature
     # remap the feature with a lower sequence IDT
     if has_greater_seq_id(feature, overlap_feature):
         return overlap_feature
