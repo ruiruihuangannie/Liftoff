@@ -152,6 +152,7 @@ def parse_args(arglist):
                                                                                         "(partial, missing start, "
                                                                                         "missing stop, inframe stop "
                                                                                         "codon)")
+    parser.add_argument('-prot-prior', required=False, action="store_true", default=False, help = 'enable protein prioritization heuristics. Default is false.')
     parser._positionals.title = 'Required input (sequences)'
     parser._optionals.title = 'Miscellaneous settings'
     parser._action_groups = [parser._positionals, refrgrp, outgrp, aligngrp, parser._optionals]

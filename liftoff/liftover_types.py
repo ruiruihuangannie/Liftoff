@@ -20,9 +20,8 @@ def lift_original_annotation(ref_chroms, target_chroms, lifted_features_list, ar
 
 def align_and_lift_features(ref_chroms, target_chroms, args, feature_hierarchy, liftover_type, unmapped_features,
                             feature_db, lifted_features_list, ref_parent_order, min_cov, min_seqid, max_overlap):
-    aligned_segments= align_features.align_features_to_target(ref_chroms, target_chroms, args,
-                                                                      feature_hierarchy,
-                                                               liftover_type, unmapped_features)
+    aligned_segments= align_features.align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy,
+                                                              liftover_type, unmapped_features)
     print("lifting features")
     feature_locations = None
     lift_features.lift_all_features(aligned_segments, min_cov, feature_db,  feature_hierarchy,
@@ -33,7 +32,7 @@ def align_and_lift_features(ref_chroms, target_chroms, args, feature_hierarchy, 
                                                                   aligned_segments, unmapped_features,
                                                                   min_cov, feature_hierarchy,
                                                                   feature_db, ref_parent_order, min_seqid, args,
-                                                                   max_overlap)
+                                                                  max_overlap, args.prot_prior)
 
 
 def map_unmapped_genes_agaisnt_all(unmapped_features, ref_chroms, target_chroms, lifted_features_list, feature_db,

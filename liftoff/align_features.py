@@ -1,6 +1,4 @@
-from multiprocessing import Pool
 import math
-from functools import partial
 import numpy as np
 from pyfaidx import Fasta, Faidx
 import subprocess
@@ -15,16 +13,12 @@ def align_features_to_target(ref_chroms, target_chroms, args, feature_hierarchy,
     else:
         target_fasta_dict = split_target_sequence(target_chroms, args.target, args.dir)
         genome_size = get_genome_size(target_fasta_dict)
-        threads_per_alignment = max(1, math.floor(int(args.p) / len(ref_chroms)))
         sam_files = []
-        pool = Pool(int(args.p))
         print("aligning features")
-        func = partial(align_single_chroms, ref_chroms, target_chroms, threads_per_alignment, args, genome_size,
-                       liftover_type)
-        for result in pool.imap_unordered(func, np.arange(0, len(target_chroms))):
-            sam_files.append(result)
-        pool.close()
-        pool.join()
+        for idx in range(0, len(target_chroms)):
+            sam_files.append(
+                align_single_chroms(ref_chroms, target_chroms, args.p, args, genome_size, liftover_type, idx)
+            )
     return parse_all_sam_files(feature_hierarchy, unmapped_features, liftover_type, sam_files)
 
 
@@ -59,9 +53,13 @@ def align_single_chroms(ref_chroms, target_chroms, threads, args, genome_size, l
         subprocess.run(command)
     else:
         minimap2_index = build_minimap2_index(target_file, args, threads_arg, minimap2_path)
-        command = [minimap2_path, '-o', output_file, minimap2_index, features_file] + args.mm2_options.split(" ") + [
-            '-t', threads_arg]
-        subprocess.run(command)
+        if not path.exists(output_file):
+            command = [minimap2_path, '-o', output_file, minimap2_index, features_file] + args.mm2_options.split(" ") + ['-t', threads_arg]
+            try:
+                subprocess.run(command, capture_output=True, text=True, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f'Command "{command}" failed with return code {e.returncode}.\n Error msg: {e.stderr}')
+
     return output_file
 
 
