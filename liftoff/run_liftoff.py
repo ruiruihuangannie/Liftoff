@@ -18,7 +18,7 @@ def run_all_liftoff_steps(args):
     else:
         ref_chroms = [args.reference]
         target_chroms = [args.target]
-    parent_features_to_lift = get_parent_features_to_lift(args.f)
+    parent_features_to_lift = get_parent_features_to_lift(args.f, args.prot_prior)
     lifted_feature_list = {}
     unmapped_features = []
     feature_db, feature_hierarchy, ref_parent_order = liftover_types.lift_original_annotation(ref_chroms, target_chroms,
@@ -152,6 +152,10 @@ def parse_args(arglist):
                                                                                         "(partial, missing start, "
                                                                                         "missing stop, inframe stop "
                                                                                         "codon)")
+    parser.add_argument(
+        '-prot_prior', required=False, action="store_true", default=False, 
+        help = 'enable protein prioritization heuristics. Default is false.'
+    )
     parser._positionals.title = 'Required input (sequences)'
     parser._optionals.title = 'Miscellaneous settings'
     parser._action_groups = [parser._positionals, refrgrp, outgrp, aligngrp, parser._optionals]
@@ -185,12 +189,15 @@ def parse_chrm_files(chroms_file):
     return ref_chroms, target_chroms
 
 
-def get_parent_features_to_lift(feature_types_file):
-    feature_types = ["gene"]
-    if feature_types_file is not None:
-        f = open(feature_types_file)
-        for line in f.readlines():
-            feature_types.append(line.rstrip())
+def get_parent_features_to_lift(feature_types_file, protein_priority):
+    if protein_priority:
+        feature_types = set(["gene", "gene_pc"])
+    else:
+        feature_types = set(["gene"])
+    if feature_types_file:
+        with open(feature_types_file, 'r') as f:
+            for line in f.readlines():
+                feature_types.add(line.rstrip())
     return feature_types
 
 

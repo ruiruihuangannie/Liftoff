@@ -12,7 +12,7 @@ import ujson as json
 
 def extract_features_to_lift(ref_chroms, liftover_type, parents_to_lift, args):
     print("extracting features")
-    if os.path.exists(args.dir) is False:
+    if not os.path.exists(args.dir):
         os.mkdir(args.dir)
     feature_db = create_feature_db_connections(args)
     feature_hierarchy, parent_order = seperate_parents_and_children(feature_db, parents_to_lift)
@@ -22,29 +22,64 @@ def extract_features_to_lift(ref_chroms, liftover_type, parents_to_lift, args):
 
 def create_feature_db_connections(args):
     gffutils.constants.ignore_url_escape_characters = True
-    if args.infer_transcripts is True:
-        disable_transcripts = False
-    else:
-        disable_transcripts = True
-    if args.infer_genes is True:
-        disable_genes = False
-    else:
-        disable_genes = True
-    feature_db = build_database(args.db, args.g, disable_transcripts, disable_genes)
+    feature_db = build_database(args.db, args.g, not args.infer_transcripts, not args.infer_genes, args.prot_prior)
     return feature_db
 
+def transform (f):
+    if f.featuretype == 'gene':
+        if 'gene_type' in f.attributes and f['gene_type'][0] == 'protein_coding':
+            f.featuretype = 'gene_pc'
+        elif 'gene_biotype' in f.attributes and f['gene_biotype'][0] == 'protein_coding':
+            f.featuretype = 'gene_pc'
+        elif 'biotype' in f.attributes and f['biotype'][0] == 'protein_coding':
+            f.featuretype = 'gene_pc'
+    return f 
 
-
-def build_database(db, gff_file, disable_transcripts, disable_genes,):
-    if db is None:
-        try:
-            feature_db = gffutils.create_db(gff_file, gff_file + "_db", merge_strategy="create_unique", force=True,
-                                            disable_infer_transcripts=disable_transcripts,
-                                            disable_infer_genes=disable_genes, verbose=True)
-        except:
-            find_problem_line(gff_file)
-    else:
+def build_database(db, gff_file, disable_transcripts, disable_genes, protein_priority):
+    feature_db = None
+    if db:
+        if protein_priority and not db.endswith("_curated_db"):
+            print('[Warning]: Improper suffix; may not be able to extract gene type information.')
+        print(f"[Info]: Extracting features from {db}")
         feature_db = gffutils.FeatureDB(db)
+        if protein_priority:
+            pc     = feature_db.count_features_of_type(featuretype='gene_pc')
+            other  = feature_db.count_features_of_type(featuretype='gene')
+            if pc == 0:
+                sys.exit(f'[Fatal]: Extracted {pc} protein-coding genes.')
+            else:
+                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
+                      f'[Info]: Extracted {other} other genes.')
+        else:
+            all_g  = feature_db.count_features_of_type(featuretype='gene')
+            print(f'[Info]: Extracted {all_g} genes.')
+    else:
+        try:
+            print(f"[Info]: Extracting features from {gff_file}")
+            if protein_priority:
+                suffix = "_curated_db"
+                func = transform 
+            else:
+                suffix = "_db"
+                func = None
+            feature_db = gffutils.create_db(
+                gff_file, gff_file + suffix, 
+                merge_strategy="create_unique", force=True,
+                disable_infer_transcripts=disable_transcripts,
+                disable_infer_genes=disable_genes, 
+                verbose=True, transform=func)
+            print('[Info]: Database build succeeded.')
+            if protein_priority:
+                pc     = feature_db.count_features_of_type(featuretype='gene_pc')
+                other  = feature_db.count_features_of_type(featuretype='gene')
+                print(f'[Info]: Extracted {pc} protein-coding genes.\n'
+                      f'[Info]: Extracted {other} other genes.')
+            else:
+                all_g  = feature_db.count_features_of_type(featuretype='gene')
+                print(f'[Info]: Extracted {all_g} genes.')
+        except Exception as e:
+            print(f'[Error]: Exception occurred while creating database: {e}')
+            find_problem_line(gff_file)
     return feature_db
 
 
@@ -157,17 +192,21 @@ def get_gene_sequences(parent_dict, ref_chroms, args, liftover_type):
     if liftover_type == "unplaced":
         open(args.dir + "/unplaced_genes.fa", 'w')
     for chrom in ref_chroms:
-        fasta_out = get_fasta_out(chrom, args.reference, liftover_type, args.dir)
+        fasta_out_name = get_fasta_out_name(chrom, args.reference, liftover_type)
+        fn = args.dir + "/" + fasta_out_name + "_genes.fa"
+        # if not os.path.exists(fn):
+        fasta_out = open(fn, 'a') if liftover_type == 'unplaced' else open(fn, 'w')
         sorted_parents = sorted(list(parent_dict.values()), key=lambda x: x.seqid)
-
         if len(sorted_parents) == 0:
             sys.exit(
                 "GFF does not contain any gene features. Use -f to provide a list of other feature types to lift over.")
         write_gene_sequences_to_file(chrom, args.reference, fai, sorted_parents, fasta_out, args)
         fasta_out.close()
+        # else:
+        #     print(f'{fn} exists, continue.')
 
 
-def get_fasta_out(chrom_name, reference_fasta_name, liftover_type, inter_files):
+def get_fasta_out_name(chrom_name, reference_fasta_name, liftover_type):
     if chrom_name == reference_fasta_name and (liftover_type == "chrm_by_chrm" or liftover_type == "copies"):
         fasta_out_name = "reference_all"
     elif liftover_type == "unmapped":
@@ -176,11 +215,7 @@ def get_fasta_out(chrom_name, reference_fasta_name, liftover_type, inter_files):
         fasta_out_name = "unplaced"
     else:
         fasta_out_name = chrom_name
-    if liftover_type == "unplaced":
-        fasta_out = open(inter_files + "/" + fasta_out_name + "_genes.fa", 'a')
-    else:
-        fasta_out = open(inter_files + "/" + fasta_out_name + "_genes.fa", 'w')
-    return fasta_out
+    return fasta_out_name
 
 
 def write_gene_sequences_to_file(chrom_name, reference_fasta_name, reference_fasta_idx, parents, fasta_out, args):

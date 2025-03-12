@@ -105,6 +105,8 @@ def make_gff_line(attr_dict, feature):
                 value_str += value + ","
             if attr != "ID":
                 attributes_str += (attr + "=" + value_str[:-1] + ";")
+    if feature.featuretype == 'gene_pc':
+        feature.featuretype = 'gene'
     return feature.seqid + "\t" + feature.source + "\t" + feature.featuretype + "\t" + str(feature.start) + \
            "\t" + str(feature.end) + "\t" + "." + "\t" + feature.strand + "\t" + feature.frame + "\t" + attributes_str[:-1]
 
@@ -130,5 +132,7 @@ def make_gtf_line(attr_dict, feature):
                 for value in attr_dict[attr]:
                      value_str += value + ","
                 attributes_str += (attr + " " + '"' + value_str[:-1] + '"' + "; ")
+    if feature.featuretype in ['gene_pc', 'gene_rRNA']:
+        feature.featuretype = 'gene'    
     return feature.seqid + "\t" + feature.source + "\t" + feature.featuretype + "\t" + str(feature.start) + \
            "\t" + str(feature.end) + "\t" + "." + "\t" + feature.strand + "\t" + "." + "\t" + attributes_str
